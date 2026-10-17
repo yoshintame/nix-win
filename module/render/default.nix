@@ -33,12 +33,12 @@ let
     i: name:
     let
       label = "user_${toString i}";
-      hive = "HKU\\nix-windows-${name}";
+      hive = "HKU\\nix-win-${name}";
       ntuser = "${cfg.users.${name}.profile}\\NTUSER.DAT";
       skip = reason: "(echo skip ${cmd.escapeEcho "${name}: ${reason}"}& exit /b 0)";
     in
     lib.throwIfNot (builtins.match "[A-Za-z0-9._-]+" name != null)
-      "nix-windows: user name '${name}' must be alphanumeric"
+      "nix-win: user name '${name}' must be alphanumeric"
       [
         ":${label}"
         "set \"root=HKCU\""
@@ -123,7 +123,7 @@ let
   }
   // commands.fileOutputs;
 in
-pkgs.runCommand "nix-windows" { } (
+pkgs.runCommand "nix-win" { } (
   lib.concatStrings (
     mapAttrsToList (
       path: text: "install -D -m 644 ${pkgs.writeText (baseNameOf path) text} $out/${path}\n"

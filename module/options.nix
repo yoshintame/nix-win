@@ -10,7 +10,7 @@ let
 in
 {
   options.windows = {
-    enable = lib.mkEnableOption "nix-windows";
+    enable = lib.mkEnableOption "nix-win";
 
     flake = mkOption {
       type = types.str;

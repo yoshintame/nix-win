@@ -5,7 +5,7 @@ usage() {
 
 action=${1:-}
 [ $# -gt 0 ] && shift
-flake=$NIX_WINDOWS_FLAKE
+flake=$NIX_WIN_FLAKE
 while [ $# -gt 0 ]; do
   case $1 in
     --flake)
@@ -27,7 +27,7 @@ run() { "$sys32/cmd.exe" /c "$@" </dev/null | tr -d '\r'; }
 out=$(nix build --no-link --print-out-paths "${flake%%#*}#nixosConfigurations.\"${flake##*#}\".config.windows.build.toplevel")
 cd /mnt/c
 payload=$(wslpath -w "$out")
-results=$(wslpath -u "$(run 'echo %TEMP%')")/nix-windows
+results=$(wslpath -u "$(run 'echo %TEMP%')")/nix-win
 rm -rf "$results"
 mkdir -p "$results"
 resultsWin=$(wslpath -w "$results")
@@ -35,17 +35,17 @@ resultsWin=$(wslpath -w "$results")
 failed=0
 if [ "$action" = switch ]; then
   if "$sys32/whoami.exe" /groups </dev/null | grep -q S-1-16-12288; then
-    echo "nix-windows: applying as administrator"
+    echo "nix-win: applying as administrator"
     run "$payload\\apply.cmd" "$resultsWin" || failed=1
   else
-    echo "nix-windows: applying through sudo"
+    echo "nix-win: applying through sudo"
     "$sys32/sudo.exe" 'C:\Windows\System32\cmd.exe' /c "$payload\\apply.cmd" "$resultsWin" | tr -d '\r' || failed=1
   fi
 else
   run "$payload\\verify.cmd" "$resultsWin"
 fi
 
-awk -F '\t' -v dir="$results" -v users="$(tr '\n' ' ' <"$out/users")" -f "$NIX_WINDOWS_COMPARE" "$out/expected.tsv" || failed=1
+awk -F '\t' -v dir="$results" -v users="$(tr '\n' ' ' <"$out/users")" -f "$NIX_WIN_COMPARE" "$out/expected.tsv" || failed=1
 
-echo "nix-windows: $action took $(( ($(date +%s%N) - start) / 1000000 )) ms"
+echo "nix-win: $action took $(( ($(date +%s%N) - start) / 1000000 )) ms"
 exit "$failed"

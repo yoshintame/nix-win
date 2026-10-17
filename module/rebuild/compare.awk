@@ -21,7 +21,7 @@ BEGIN { n = split(users, names, " ") }
 $1 == "machine" { check("machine", $4) }
 $1 == "user" { for (i = 1; i <= n; i++) check("user-" names[i], names[i] ": " $4) }
 END {
-  printf "nix-windows: %d ok, %d drift, %d missing", ok, drift, missing
+  printf "nix-win: %d ok, %d drift, %d missing", ok, drift, missing
   for (s in skipped) printf ", %s not checked", s
   print ""
   exit (drift + missing > 0)

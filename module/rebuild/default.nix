@@ -12,8 +12,8 @@ pkgs.writeShellApplication {
     nix
   ];
   runtimeEnv = {
-    NIX_WINDOWS_FLAKE = flake;
-    NIX_WINDOWS_COMPARE = "${./compare.awk}";
+    NIX_WIN_FLAKE = flake;
+    NIX_WIN_COMPARE = "${./compare.awk}";
   };
   text = builtins.readFile ./windows-rebuild.sh;
 }

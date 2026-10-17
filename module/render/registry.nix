@@ -31,13 +31,12 @@ let
 
   validate =
     label: e:
-    lib.throwIf (e.name or null == "")
-      "nix-windows: ${label}: the default value of a key is not supported"
+    lib.throwIf (e.name or null == "") "nix-win: ${label}: the default value of a key is not supported"
       (
-        lib.throwIf (hasInfix "\"" e.path) "nix-windows: ${label}: quotes in key paths are not supported" (
+        lib.throwIf (hasInfix "\"" e.path) "nix-win: ${label}: quotes in key paths are not supported" (
           lib.throwIf (
             builtins.isString (e.value or null) && (hasInfix "\n" e.value || hasInfix "\t" e.value)
-          ) "nix-windows: ${label}: values with line breaks or tabs cannot be verified" e
+          ) "nix-win: ${label}: values with line breaks or tabs cannot be verified" e
         )
       );
 
