@@ -8,16 +8,16 @@ action=${1:-}
 flake=$NIX_WIN_FLAKE
 while [ $# -gt 0 ]; do
   case $1 in
-    --flake)
-      flake=${2:?}
-      shift 2
-      ;;
-    *) usage ;;
+  --flake)
+    flake=${2:?}
+    shift 2
+    ;;
+  *) usage ;;
   esac
 done
 case $action in
-  switch | check) ;;
-  *) usage ;;
+switch | check) ;;
+*) usage ;;
 esac
 
 start=$(date +%s%N)
@@ -47,5 +47,5 @@ fi
 
 awk -F '\t' -v dir="$results" -v users="$(tr '\n' ' ' <"$out/users")" -f "$NIX_WIN_COMPARE" "$out/expected.tsv" || failed=1
 
-echo "nix-win: $action took $(( ($(date +%s%N) - start) / 1000000 )) ms"
+echo "nix-win: $action took $((($(date +%s%N) - start) / 1000000)) ms"
 exit "$failed"
