@@ -14,8 +14,8 @@ in
   ];
 
   config = lib.mkIf cfg.enable {
-    windows.build.toplevel = import ./render.nix { inherit lib pkgs cfg; };
-    windows.build.rebuild = import ./windows-rebuild.nix {
+    windows.build.toplevel = import ./render { inherit lib pkgs cfg; };
+    windows.build.rebuild = import ./rebuild {
       inherit pkgs;
       inherit (cfg) flake;
     };

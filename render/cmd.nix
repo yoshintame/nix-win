@@ -6,17 +6,11 @@ let
 in
 rec {
   crlf = concatMapStrings (line: line + "\r\n");
-
   quote = s: "\"${replaceStrings [ "%" ] [ "%%" ] s}\"";
-
   escapeEcho = replaceStrings (echoSpecials ++ [ "%" ]) (map (c: "^" + c) echoSpecials ++ [ "%%" ]);
-
   winPath = replaceStrings [ "/" ] [ "\\" ];
-
   winDir = p: lib.concatStringsSep "\\" (lib.init (lib.splitString "\\" p));
-
   pad = i: lib.fixedWidthString 4 "0" (toString i);
-
   fail = label: "(echo FAILED ${escapeEcho label}& set failed=1)";
 
   file = path: lines: {
