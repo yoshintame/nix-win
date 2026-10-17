@@ -2,11 +2,19 @@
 let
   inherit (lib) mkOption types;
 
-  value = types.nullOr (types.either types.ints.u32 types.str);
-  keys = mkOption {
-    type = types.attrsOf (types.nullOr (types.attrsOf value));
-    default = { };
-  };
+  matching = regex: types.strMatching regex;
+  line = matching "[^\r\n\t]*";
+  safe = matching "[^\r\n\t\"]+";
+  word = matching "[A-Za-z0-9._~-]+";
+
+  option =
+    type: default:
+    mkOption {
+      inherit type default;
+    };
+
+  value = types.nullOr (types.either types.ints.u32 line);
+  keys = option (types.attrsOf (types.nullOr (types.attrsOf value))) { };
 in
 {
   options.windows = {
@@ -21,150 +29,94 @@ in
       HKCU = keys;
     };
 
-    users = mkOption {
-      type = types.attrsOf (
-        types.submodule (
-          { name, ... }:
-          {
-            options.profile = mkOption {
-              type = types.str;
-              default = ''C:\Users\${name}'';
-            };
-          }
-        )
-      );
-      default = { };
-    };
+    users = option (types.attrsOf (
+      types.submodule (
+        { name, ... }:
+        {
+          options.profile = option safe ''C:\Users\${name}'';
+        }
+      )
+    )) { };
 
-    services = mkOption {
-      type = types.attrsOf (
-        types.submodule {
+    services = option (types.attrsOf (
+      types.submodule {
+        options = {
+          startType = option (types.nullOr (
+            types.enum [
+              "auto"
+              "delayed-auto"
+              "demand"
+              "disabled"
+            ]
+          )) null;
+          state = option (types.nullOr (
+            types.enum [
+              "running"
+              "stopped"
+            ]
+          )) null;
+        };
+      }
+    )) { };
+
+    firewall.rules = option (types.attrsOf (
+      types.submodule (
+        { name, ... }:
+        {
           options = {
-            startType = mkOption {
-              type = types.nullOr (
-                types.enum [
-                  "auto"
-                  "delayed-auto"
-                  "demand"
-                  "disabled"
-                ]
-              );
-              default = null;
-            };
-            state = mkOption {
-              type = types.nullOr (
-                types.enum [
-                  "running"
-                  "stopped"
-                ]
-              );
-              default = null;
-            };
+            displayName = option (matching "[^\r\n\t\"'‘’‚‛]+") name;
+            enable = option types.bool true;
+            direction = option (types.enum [
+              "Inbound"
+              "Outbound"
+            ]) "Inbound";
+            action = option (types.enum [
+              "Allow"
+              "Block"
+            ]) "Allow";
+            protocol = option (types.enum [
+              "TCP"
+              "UDP"
+              "ICMPv4"
+              "ICMPv6"
+              "Any"
+            ]) "TCP";
+            localPort = option (types.nullOr (types.either types.port (matching "[0-9,-]+"))) null;
+            remoteAddress = option (types.listOf (matching "[0-9A-Fa-f:./-]+")) [ ];
+            interfaceAlias = option (types.nullOr (matching "[A-Za-z0-9 ._()-]+")) null;
           };
         }
-      );
-      default = { };
-    };
+      )
+    )) { };
 
-    firewall.rules = mkOption {
-      type = types.attrsOf (
-        types.submodule (
-          { name, ... }:
-          {
-            options = {
-              displayName = mkOption {
-                type = types.str;
-                default = name;
-              };
-              enable = mkOption {
-                type = types.bool;
-                default = true;
-              };
-              direction = mkOption {
-                type = types.enum [
-                  "Inbound"
-                  "Outbound"
-                ];
-                default = "Inbound";
-              };
-              action = mkOption {
-                type = types.enum [
-                  "Allow"
-                  "Block"
-                ];
-                default = "Allow";
-              };
-              protocol = mkOption {
-                type = types.str;
-                default = "TCP";
-              };
-              localPort = mkOption {
-                type = types.nullOr (types.either types.port types.str);
-                default = null;
-              };
-              remoteAddress = mkOption {
-                type = types.listOf types.str;
-                default = [ ];
-              };
-            };
-          }
-        )
-      );
-      default = { };
-    };
+    capabilities = option (types.listOf word) [ ];
 
-    capabilities = mkOption {
-      type = types.listOf types.str;
-      default = [ ];
-    };
-
-    files = mkOption {
-      type = types.attrsOf (
-        types.submodule {
-          options = {
-            text = mkOption {
-              type = types.lines;
-            };
-            grants = mkOption {
-              type = types.listOf types.str;
-              default = [ ];
-            };
-            onChange = mkOption {
-              type = types.lines;
-              default = "";
-            };
+    files = option (types.attrsOf (
+      types.submodule {
+        options = {
+          text = mkOption {
+            type = types.lines;
           };
-        }
-      );
-      default = { };
-    };
+          grants = option (types.listOf (matching "\\*?[A-Za-z0-9-]+:\\(?[A-Z,]+\\)?")) [ ];
+          onChange = option types.lines "";
+        };
+      }
+    )) { };
 
     power = {
-      timeouts = mkOption {
-        type = types.attrsOf types.ints.unsigned;
-        default = { };
-      };
-      hibernate = mkOption {
-        type = types.nullOr types.bool;
-        default = null;
-      };
+      timeouts = option (types.attrsOf types.ints.unsigned) { };
+      hibernate = option (types.nullOr types.bool) null;
     };
 
-    scheduledTasks = mkOption {
-      type = types.attrsOf (
-        types.submodule {
-          options.enable = mkOption {
-            type = types.bool;
-          };
-        }
-      );
-      default = { };
-    };
+    scheduledTasks = option (types.attrsOf (
+      types.submodule {
+        options.enable = mkOption {
+          type = types.bool;
+        };
+      }
+    )) { };
 
-    networkAdapters.powerManagement = mkOption {
-      type = types.attrsOf types.str;
-      default = { };
-    };
+    networkAdapters.powerManagement = option (types.attrsOf (matching "[A-Za-z]+")) { };
 
     build.toplevel = mkOption {
       type = types.package;

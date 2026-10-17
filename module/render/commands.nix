@@ -18,6 +18,9 @@ let
   inherit (cmd) fail quote psString;
 
   winDir = path: concatStringsSep "\\" (lib.init (lib.splitString "\\" path));
+  psHashtable =
+    attrs: "@{ ${concatStringsSep "; " (mapAttrsToList (name: value: "${name} = ${value}") attrs)} }";
+  psArray = values: "@(${concatStringsSep ", " (map psString values)})";
 
   files = imap1 (i: target: {
     inherit target;
@@ -39,20 +42,21 @@ in
   firewall = mapAttrsToList (
     name: r:
     let
-      params = concatStringsSep " " (
-        [
-          "-Name ${psString name}"
-          "-DisplayName ${psString r.displayName}"
-          "-Direction ${r.direction}"
-          "-Action ${r.action}"
-          "-Protocol ${r.protocol}"
-          "-Enabled ${if r.enable then "True" else "False"}"
-        ]
-        ++ optional (r.localPort != null) "-LocalPort ${toString r.localPort}"
-        ++ optional (r.remoteAddress != [ ]) "-RemoteAddress ${concatStringsSep "," r.remoteAddress}"
+      params = psHashtable (
+        {
+          Direction = psString r.direction;
+          Action = psString r.action;
+          Protocol = psString r.protocol;
+          Enabled = psString (if r.enable then "True" else "False");
+        }
+        // lib.optionalAttrs (r.localPort != null) { LocalPort = psString (toString r.localPort); }
+        // lib.optionalAttrs (r.remoteAddress != [ ]) { RemoteAddress = psArray r.remoteAddress; }
+        // lib.optionalAttrs (r.interfaceAlias != null) { InterfaceAlias = psString r.interfaceAlias; }
       );
+      n = psString name;
+      d = psString r.displayName;
     in
-    cmd.powershell "Get-NetFirewallRule -Name ${psString name} -ErrorAction SilentlyContinue | Remove-NetFirewallRule; Get-NetFirewallRule -DisplayName ${psString r.displayName} -ErrorAction SilentlyContinue | Remove-NetFirewallRule; New-NetFirewallRule ${params} -ErrorAction Stop | Out-Null" "firewall ${name}"
+    cmd.powershell "$p = ${params}; if (Get-NetFirewallRule -Name ${n} -ErrorAction SilentlyContinue) { Set-NetFirewallRule -Name ${n} -NewDisplayName ${d} @p -ErrorAction Stop } else { New-NetFirewallRule -Name ${n} -DisplayName ${d} @p -ErrorAction Stop | Out-Null }; Get-NetFirewallRule -DisplayName ([WildcardPattern]::Escape(${d})) -ErrorAction SilentlyContinue | Where-Object Name -ne ${n} | Remove-NetFirewallRule" "firewall ${name}"
   ) cfg.firewall.rules;
 
   services = concatLists (
@@ -77,22 +81,20 @@ in
     let
       src = "\"%~dp0${f.stored}\"";
       dst = quote f.target;
-      grants = concatMapStrings (g: "/grant ${g} ") f.grants;
+      grants = concatMapStrings (g: " /grant:r ${g}") f.grants;
     in
     [
       "if not exist ${quote (winDir f.target)} mkdir ${quote (winDir f.target)}"
       "fc /b ${src} ${dst} >nul 2>&1 || (copy /y ${src} ${dst} >nul && set ${f.changed}=1 || ${fail f.target})"
     ]
-    ++ optional (
-      f.grants != [ ]
-    ) "icacls ${dst} /inheritance:r ${grants}>nul || ${fail "acl ${f.target}"}"
-  ) files;
-
-  onChange = concatMap (
-    f:
-    optionals (f.onChange != "") (
+    ++
+      optional (f.grants != [ ])
+        "icacls ${dst} /reset >nul && icacls ${dst} /inheritance:r${grants} >nul && icacls ${dst} /setowner *S-1-5-32-544 >nul || ${fail "acl ${f.target}"}"
+    ++ optionals (f.onChange != "") (
       [ "if not defined ${f.changed} goto after_${f.changed}" ]
-      ++ filter (l: l != "") (lib.splitString "\n" f.onChange)
+      ++ map (line: "${line} || ${fail "on change of ${f.target}"}") (
+        filter (l: l != "") (lib.splitString "\n" f.onChange)
+      )
       ++ [ ":after_${f.changed}" ]
     )
   ) files;
@@ -118,11 +120,6 @@ in
   ) cfg.scheduledTasks;
 
   adapters = optional (cfg.networkAdapters.powerManagement != { }) (
-    let
-      pm = cfg.networkAdapters.powerManagement;
-      drift = concatStringsSep " -or " (mapAttrsToList (n: v: "$_.${n} -ne ${psString v}") pm);
-      params = concatStringsSep " " (mapAttrsToList (n: v: "-${n} ${v}") pm);
-    in
-    cmd.powershell "Get-NetAdapter -Physical | Where-Object MediaType -eq '802.3' | Get-NetAdapterPowerManagement | Where-Object { ${drift} } | ForEach-Object { Set-NetAdapterPowerManagement -Name $_.Name ${params} -ErrorAction Stop }" "network adapter power management"
+    cmd.powershell "$d = ${psHashtable (lib.mapAttrs (_: psString) cfg.networkAdapters.powerManagement)}; Get-NetAdapter -Physical | Where-Object MediaType -eq '802.3' | Get-NetAdapterPowerManagement | ForEach-Object { $a = $_; $p = @{}; foreach ($k in $d.Keys) { if ($a.$k -ne 'Unsupported' -and $a.$k -ne $d[$k]) { $p[$k] = $d[$k] } }; if ($p.Count) { Set-NetAdapterPowerManagement -Name $a.Name @p -ErrorAction Stop } }" "network adapter power management"
   );
 }

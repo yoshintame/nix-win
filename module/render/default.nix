@@ -4,122 +4,131 @@
   cfg,
 }:
 let
-  inherit (lib) concatLists imap1 mapAttrsToList;
+  inherit (lib)
+    concatLists
+    concatMap
+    concatStringsSep
+    imap1
+    mapAttrsToList
+    ;
 
   cmd = import ./cmd.nix { inherit lib; };
   registry = import ./registry.nix { inherit lib cmd; };
   commands = import ./commands.nix { inherit lib cmd cfg; };
 
-  machine = registry {
-    root = "HKLM";
-    label = "HKLM";
-    scope = "machine";
-  } cfg.registry.HKLM;
-
-  hkcu = registry {
-    root = "%root%";
-    label = "HKCU";
-    scope = "user";
-  } cfg.registry.HKCU;
-
+  numbered = imap1 (i: operation: operation // { index = cmd.pad i; });
+  machine = numbered (
+    registry {
+      root = "HKLM";
+      label = "HKLM";
+    } cfg.registry.HKLM
+  );
+  hkcu = numbered (
+    registry {
+      root = "%root%";
+      label = "HKCU";
+    } cfg.registry.HKCU
+  );
   users = builtins.attrNames cfg.users;
 
-  header = [
-    "@echo off"
-    "chcp 65001 >nul"
-  ];
+  verify =
+    scope: operations:
+    concatMap (operation: [
+      "echo @@ ${scope} ${operation.index}"
+      "${operation.query} 2>nul"
+    ]) operations;
+
+  expected =
+    scope: prefix: operations:
+    map (
+      operation:
+      concatStringsSep "\t" [
+        scope
+        operation.index
+        operation.kind
+        "${prefix}${operation.label}"
+        operation.line
+      ]
+    ) operations;
 
   userSection =
     i: name:
     let
       label = "user_${toString i}";
-      hive = "HKU\\nix-win-${name}";
       ntuser = "${cfg.users.${name}.profile}\\NTUSER.DAT";
       skip = reason: "(echo skip ${cmd.escapeEcho "${name}: ${reason}"}& exit /b 0)";
     in
-    lib.throwIfNot (builtins.match "[A-Za-z0-9._-]+" name != null)
-      "nix-win: user name '${name}' must be alphanumeric"
-      [
-        ":${label}"
-        "set \"root=HKCU\""
-        "if /i \"%USERNAME%\"==\"${name}\" goto ${label}_body"
-        "if not defined admin ${skip "reading another user's HKCU needs an administrator session"}"
-        "if not exist ${cmd.quote ntuser} ${skip "no profile at ${ntuser}"}"
-        "set \"root=${hive}\""
-        "reg unload \"%root%\" >nul 2>&1"
-        "reg load \"%root%\" ${cmd.quote ntuser} >nul 2>&1 || ${skip "hive in use"}"
-        ":${label}_body"
-        "set \"dir=%out%\\user-${name}\""
-        "if \"%mode%\"==\"apply\" call :hkcu_apply"
-        "call :hkcu_verify"
-        "if \"%root%\"==\"HKCU\" exit /b 0"
-        "reg unload \"%root%\" >nul 2>&1 || ${cmd.fail "unload ${hive}"}"
-        "exit /b 0"
-      ];
+    [
+      ":${label}"
+      "set \"scope=user-${name}\""
+      "set \"root=HKCU\""
+      "if /i \"%USERNAME%\"==\"${name}\" goto ${label}_body"
+      "if not defined admin ${skip "reading another user's HKCU needs an administrator session"}"
+      "if not exist ${cmd.quote ntuser} ${skip "no profile at ${ntuser}"}"
+      "set \"root=HKU\\nix-win-${name}\""
+      "reg unload \"%root%\" >nul 2>&1"
+      "reg load \"%root%\" ${cmd.quote ntuser} >nul 2>&1 || ${skip "hive in use"}"
+      ":${label}_body"
+      "if \"%mode%\"==\"apply\" call :hkcu_apply"
+      "call :hkcu_verify"
+      "if not \"%root%\"==\"HKCU\" call :unload"
+      "exit /b 0"
+    ];
 
-  usersCmd =
-    header
-    ++ [
+  script = concatLists [
+    [
+      "@echo off"
+      "chcp 65001 >nul"
+      "setlocal DisableDelayedExpansion"
+      "set \"PATH=%SystemRoot%\\System32;%SystemRoot%;%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\""
       "set \"mode=%~1\""
+      "set failed=0"
       "set \"admin=\""
-      "whoami /groups | find \"S-1-16-12288\" >nul && set \"admin=1\""
+      "whoami /groups | findstr /c:\"S-1-16-12288\" /c:\"S-1-16-16384\" >nul && set \"admin=1\""
+      "if \"%mode%\"==\"apply\" if not defined admin (echo FAILED applying needs an administrator session& exit /b 1)"
+      "if \"%mode%\"==\"apply\" call :apply"
+      "call :verify_machine"
     ]
-    ++ imap1 (i: _: "call :user_${toString i}") users
-    ++ [ "exit /b 0" ]
-    ++ concatLists (imap1 userSection users)
-    ++ [ ":hkcu_apply" ]
-    ++ hkcu.apply
-    ++ [
+    (imap1 (i: _: "call :user_${toString i}") users)
+    [
+      "exit /b %failed%"
+      ":apply"
+    ]
+    commands.capabilities
+    commands.firewall
+    commands.services
+    commands.files
+    (map (operation: operation.apply) machine)
+    commands.power
+    commands.tasks
+    commands.adapters
+    [
+      "exit /b 0"
+      ":verify_machine"
+    ]
+    (verify "machine" machine)
+    [ "exit /b 0" ]
+    (concatLists (imap1 userSection users))
+    [ ":hkcu_apply" ]
+    (map (operation: operation.apply) hkcu)
+    [
       "exit /b 0"
       ":hkcu_verify"
     ]
-    ++ hkcu.verify
-    ++ [ "exit /b 0" ];
-
-  verifyCmd =
-    header
-    ++ [
-      "setlocal"
-      "if not \"%~1\"==\"\" set \"out=%~1\""
-      "set \"dir=%out%\\machine\""
-    ]
-    ++ machine.verify
-    ++ [
-      "if /i \"%~2\"==\"machine\" exit /b 0"
-      "call \"%~dp0users.cmd\" verify"
+    (verify "%scope%" hkcu)
+    [
       "exit /b 0"
-    ];
-
-  applyCmd =
-    header
-    ++ [
-      "setlocal"
-      "set \"out=%~1\""
-      "set failed=0"
+      ":unload"
+      "for /l %%i in (1,1,3) do (reg unload \"%root%\" >nul 2>&1 && exit /b 0 & ping -n 2 127.0.0.1 >nul)"
+      "echo FAILED unload %root%& set failed=1& exit /b 0"
     ]
-    ++ commands.capabilities
-    ++ commands.firewall
-    ++ commands.services
-    ++ commands.files
-    ++ machine.apply
-    ++ commands.power
-    ++ commands.tasks
-    ++ commands.adapters
-    ++ [ "call \"%~dp0users.cmd\" apply" ]
-    ++ commands.onChange
-    ++ [
-      "call \"%~dp0verify.cmd\" \"%out%\" machine"
-      "exit /b %failed%"
-    ];
-
-  lines = lib.concatMapStrings (l: l + "\n");
+  ];
 
   outputs = {
-    "apply.cmd" = cmd.crlf applyCmd;
-    "users.cmd" = cmd.crlf usersCmd;
-    "verify.cmd" = cmd.crlf verifyCmd;
-    "expected.tsv" = lines (machine.expected ++ hkcu.expected);
-    "users" = lines users;
+    "nix-win.cmd" = cmd.crlf script;
+    "expected.tsv" = lib.concatMapStrings (row: row + "\n") (
+      expected "machine" "" machine ++ concatMap (name: expected "user-${name}" "${name}: " hkcu) users
+    );
   }
   // commands.fileOutputs;
 in
