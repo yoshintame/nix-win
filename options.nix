@@ -184,5 +184,10 @@ in
       type = types.package;
       readOnly = true;
     };
+
+    build.rebuild = mkOption {
+      type = types.package;
+      readOnly = true;
+    };
   };
 }

@@ -76,7 +76,7 @@ let
   winDir = p: concatStringsSep "\\" (lib.init (lib.splitString "\\" p));
   pad = fixedWidthString 4 "0";
 
-  fail = label: "(echo FAILED ${escapeEcho label} & set failed=1)";
+  fail = label: "(echo FAILED ${escapeEcho label}& set failed=1)";
 
   isValue = v: !(builtins.isAttrs v) || v ? _type;
 
@@ -436,7 +436,7 @@ let
         "@echo off"
         "chcp 65001 >nul"
         "reg load ${quoteCmd "HKU\\lasthaze-${name}"} ${quoteCmd "${cfg.users.${name}.profile}\\NTUSER.DAT"} >nul 2>&1"
-        "if errorlevel 1 (echo skip ${escapeEcho name}: hive in use & exit /b 0)"
+        "if errorlevel 1 (echo skip ${escapeEcho name}: hive in use& exit /b 0)"
         "if /i not \"%~1\"==\"apply\" goto verify"
       ]
       ++ hive.imports
