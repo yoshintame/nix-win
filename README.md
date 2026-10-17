@@ -64,12 +64,12 @@ Registry paths and value names are case-insensitive on Windows, so two spellings
 ## How it runs
 
 - The distribution needs `wsl.interop.register = true`; Windows tools are called by absolute path and scripts run with a system-only `PATH` and `PSModulePath`.
-- `nix-win.cmd apply` runs straight from the store over `\\wsl.localhost` in one `cmd.exe /d` process. From a normal terminal it elevates once through the built-in `sudo.exe`, which must run inline or with input disabled (`windows.defaults.system.sudo`); from an SSH session or SYSTEM the token is already elevated.
+- `switch` elevates once: through the built-in `sudo.exe` from a normal terminal (it must run inline or with input disabled, `windows.defaults.system.sudo`), directly from an SSH session or SYSTEM. The elevated `stage.cmd` copies the rendered files from the store (over `\\wsl.localhost`) into `%ProgramData%\nix-win`, a directory only Administrators and SYSTEM can write, and runs `nix-win.cmd apply` from there in one `cmd.exe /d` process; capabilities, firewall rules and adapters go through one PowerShell script. `check` without elevation runs `nix-win.cmd verify` from a copy in `%TEMP%`.
 - Every applied value, deletion and created key is read back with `reg query`; results go to stdout between `@@ <scope> <n>` markers and `compare.awk` matches them against the lines Nix expects. `switch` and `check` fail on drift, on missing values and when the machine scope was not verified at all.
 - Other users' hives are loaded, written, verified and unloaded; a signed-in user (including a disconnected session) is skipped and reported as not checked.
 
 ## Threat model
 
-The script that runs elevated comes from the NixOS-WSL distribution. Anyone who can run code as the Windows user can become root in that distribution (`wsl -u root`) and change what the next `switch` executes, so root in the distribution is effectively administrator on Windows. nix-win removes the cheaper paths — no payload copy in `%TEMP%`, no files written by the elevated process, no `AutoRun`, no user PowerShell modules, no user `PATH` — but it does not create a boundary between the Windows user and the elevated run.
+The script that runs elevated comes from the NixOS-WSL distribution. Anyone who can run code as the Windows user can become root in that distribution (`wsl -u root`) and change what the next `switch` executes, so root in the distribution is effectively administrator on Windows. nix-win removes the cheaper paths — the elevated run executes only from a directory users cannot write, writes no results to files, and ignores `AutoRun`, user PowerShell modules and the user `PATH` — but it does not create a boundary between the Windows user and the elevated run.
 
 Not covered: rollback, drift detection outside the registry, values with line breaks, `REG_EXPAND_SZ` / `REG_MULTI_SZ` / binary values, the default value of a key.

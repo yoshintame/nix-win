@@ -75,12 +75,36 @@ let
       "exit /b 0"
     ];
 
-  script = concatLists [
+  header = [
+    "@echo off"
+    "chcp 65001 >nul"
+    "setlocal DisableDelayedExpansion"
+    "set \"PATH=%SystemRoot%\\System32;%SystemRoot%;%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\""
+  ];
+  powershellFile = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File";
+
+  powershellScript = lib.concatStringsSep "\n" (
     [
-      "@echo off"
-      "chcp 65001 >nul"
-      "setlocal DisableDelayedExpansion"
-      "set \"PATH=%SystemRoot%\\System32;%SystemRoot%;%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\""
+      "$ErrorActionPreference = 'Stop'"
+      "$env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')"
+      "$failed = $false"
+      "function Invoke-Step([string]$Label, [scriptblock]$Body) { try { & $Body } catch { Write-Output \"FAILED $Label\"; $script:failed = $true } }"
+    ]
+    ++ map (step: "Invoke-Step ${cmd.psString step.label} {\n${step.body}\n}") commands.powershell
+    ++ [
+      "if ($failed) { exit 1 }"
+      ""
+    ]
+  );
+
+  stage = header ++ [
+    "${powershellFile} \"%~dp0stage.ps1\" || (echo FAILED staging into %ProgramData%\\nix-win& exit /b 1)"
+    "call \"%ProgramData%\\nix-win\\current\\nix-win.cmd\" %1"
+  ];
+
+  script = concatLists [
+    header
+    [
       "set \"mode=%~1\""
       "set failed=0"
       "set \"admin=\""
@@ -94,14 +118,12 @@ let
       "exit /b %failed%"
       ":apply"
     ]
-    commands.capabilities
-    commands.firewall
+    (lib.optional (commands.powershell != [ ]) "${powershellFile} \"%~dp0nix-win.ps1\" || set failed=1")
     commands.services
     commands.files
     (map (operation: operation.apply) machine)
     commands.power
     commands.tasks
-    commands.adapters
     [
       "exit /b 0"
       ":verify_machine"
@@ -126,16 +148,26 @@ let
 
   outputs = {
     "nix-win.cmd" = cmd.crlf script;
+    "stage.cmd" = cmd.crlf stage;
+    "stage.ps1" = builtins.readFile ./stage.ps1;
     "expected.tsv" = lib.concatMapStrings (row: row + "\n") (
       expected "machine" "" machine ++ concatMap (name: expected "user-${name}" "${name}: " hkcu) users
     );
   }
+  // lib.optionalAttrs (commands.powershell != [ ]) { "nix-win.ps1" = powershellScript; }
   // commands.fileOutputs;
 in
 pkgs.runCommand "nix-win" { } (
   lib.concatStrings (
     mapAttrsToList (
-      path: text: "install -D -m 644 ${pkgs.writeText (baseNameOf path) text} $out/${path}\n"
+      path: text:
+      let
+        file = pkgs.writeText (baseNameOf path) text;
+      in
+      if lib.hasSuffix ".ps1" path then
+        "mkdir -p $out; { printf '\\xef\\xbb\\xbf'; cat ${file}; } > $out/${path}\n"
+      else
+        "install -D -m 644 ${file} $out/${path}\n"
     ) outputs
   )
 )

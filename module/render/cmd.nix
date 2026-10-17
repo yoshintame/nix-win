@@ -35,14 +35,8 @@ rec {
       closing = if lib.mod (builtins.length pieces) 2 == 0 then "^\"" else "\"";
     in
     "\"${concatStringsSep "\\\"" (imap0 quotePiece pieces)}${closing}";
-  psString =
-    s:
-    lib.throwIf (lib.hasInfix "\"" s) "nix-win: unexpected quote in ${s}"
-      "'${replaceStrings psQuotes (map (q: q + q) psQuotes) (percent s)}'";
+  psString = s: "'${replaceStrings psQuotes (map (q: q + q) psQuotes) s}'";
   escapeEcho = s: percent (caret s);
   pad = i: lib.fixedWidthString 4 "0" (toString i);
   fail = label: "(echo FAILED ${escapeEcho label}& set failed=1)";
-  powershell =
-    command: label:
-    "powershell -NoProfile -NonInteractive -Command \"$env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine'); ${command}\" || ${fail label}";
 }

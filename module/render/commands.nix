@@ -34,30 +34,46 @@ in
     map (f: lib.nameValuePair (lib.replaceStrings [ "\\" ] [ "/" ] f.stored) f.text) files
   );
 
-  capabilities = map (
-    c:
-    cmd.powershell "if ((Get-WindowsCapability -Online -Name ${psString c}).State -ne 'Installed') { Add-WindowsCapability -Online -Name ${psString c} -ErrorAction Stop | Out-Null }" "capability ${c}"
-  ) cfg.capabilities;
-
-  firewall = mapAttrsToList (
-    name: r:
-    let
-      params = psHashtable (
-        {
-          Direction = psString r.direction;
-          Action = psString r.action;
-          Protocol = psString r.protocol;
-          Enabled = psString (if r.enable then "True" else "False");
-        }
-        // lib.optionalAttrs (r.localPort != null) { LocalPort = psString (toString r.localPort); }
-        // lib.optionalAttrs (r.remoteAddress != [ ]) { RemoteAddress = psArray r.remoteAddress; }
-        // lib.optionalAttrs (r.interfaceAlias != null) { InterfaceAlias = psString r.interfaceAlias; }
-      );
-      n = psString name;
-      d = psString r.displayName;
-    in
-    cmd.powershell "$p = ${params}; if (Get-NetFirewallRule -Name ${n} -ErrorAction SilentlyContinue) { Set-NetFirewallRule -Name ${n} -NewDisplayName ${d} @p -ErrorAction Stop } else { New-NetFirewallRule -Name ${n} -DisplayName ${d} @p -ErrorAction Stop | Out-Null }; Get-NetFirewallRule -DisplayName ([WildcardPattern]::Escape(${d})) -ErrorAction SilentlyContinue | Where-Object Name -ne ${n} | Remove-NetFirewallRule" "firewall ${name}"
-  ) cfg.firewall.rules;
+  powershell =
+    map (c: {
+      label = "capability ${c}";
+      body = "if ((Get-WindowsCapability -Online -Name ${psString c}).State -ne 'Installed') { Add-WindowsCapability -Online -Name ${psString c} | Out-Null }";
+    }) cfg.capabilities
+    ++ mapAttrsToList (
+      name: r:
+      let
+        params = psHashtable (
+          {
+            Direction = psString r.direction;
+            Action = psString r.action;
+            Protocol = psString r.protocol;
+            Enabled = psString (if r.enable then "True" else "False");
+          }
+          // lib.optionalAttrs (r.localPort != null) { LocalPort = psString (toString r.localPort); }
+          // lib.optionalAttrs (r.remoteAddress != [ ]) { RemoteAddress = psArray r.remoteAddress; }
+          // lib.optionalAttrs (r.interfaceAlias != null) { InterfaceAlias = psString r.interfaceAlias; }
+        );
+      in
+      {
+        label = "firewall ${name}";
+        body = lib.concatStringsSep "\n" [
+          "$n = ${psString name}; $d = ${psString r.displayName}; $p = ${params}"
+          "if (Get-NetFirewallRule -Name $n -ErrorAction SilentlyContinue) { Set-NetFirewallRule -Name $n -NewDisplayName $d @p } else { New-NetFirewallRule -Name $n -DisplayName $d @p | Out-Null }"
+          "Get-NetFirewallRule -DisplayName ([WildcardPattern]::Escape($d)) -ErrorAction SilentlyContinue | Where-Object Name -ne $n | Remove-NetFirewallRule"
+        ];
+      }
+    ) cfg.firewall.rules
+    ++ optional (cfg.networkAdapters.powerManagement != { }) {
+      label = "network adapter power management";
+      body = lib.concatStringsSep "\n" [
+        "$d = ${psHashtable (lib.mapAttrs (_: psString) cfg.networkAdapters.powerManagement)}"
+        "Get-NetAdapter -Physical | Where-Object MediaType -eq '802.3' | Get-NetAdapterPowerManagement | ForEach-Object {"
+        "  $a = $_; $p = @{}"
+        "  foreach ($k in $d.Keys) { if ($a.$k -ne 'Unsupported' -and $a.$k -ne $d[$k]) { $p[$k] = $d[$k] } }"
+        "  if ($p.Count) { Set-NetAdapterPowerManagement -Name $a.Name @p }"
+        "}"
+      ];
+    };
 
   services = concatLists (
     mapAttrsToList (
@@ -119,7 +135,4 @@ in
     "schtasks /Query /TN ${q} >nul 2>&1 && (schtasks /Change /TN ${q} ${flag} >nul 2>&1 || ${fail "task ${name}"}) || echo skip task ${cmd.escapeEcho name}: not found"
   ) cfg.scheduledTasks;
 
-  adapters = optional (cfg.networkAdapters.powerManagement != { }) (
-    cmd.powershell "$d = ${psHashtable (lib.mapAttrs (_: psString) cfg.networkAdapters.powerManagement)}; Get-NetAdapter -Physical | Where-Object MediaType -eq '802.3' | Get-NetAdapterPowerManagement | ForEach-Object { $a = $_; $p = @{}; foreach ($k in $d.Keys) { if ($a.$k -ne 'Unsupported' -and $a.$k -ne $d[$k]) { $p[$k] = $d[$k] } }; if ($p.Count) { Set-NetAdapterPowerManagement -Name $a.Name @p -ErrorAction Stop } }" "network adapter power management"
-  );
 }

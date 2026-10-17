@@ -27,12 +27,14 @@ windows() { "$@" </dev/null | tr -d '\r'; }
 
 out=$(nix build --no-link --print-out-paths "${flake%%#*}#nixosConfigurations.\"${flake##*#}\".config.windows.build.toplevel")
 cd /mnt/c
-script="$(wslpath -w "$out")\\nix-win.cmd"
 report=$(mktemp)
 trap 'rm -f "$report"' EXIT
 
+high=false
+if windows "$sys32/whoami.exe" /groups | grep -qE 'S-1-16-(12288|16384)'; then high=true; fi
+
 run=("$sys32/cmd.exe")
-if [ "$mode" = apply ] && ! windows "$sys32/whoami.exe" /groups | grep -qE 'S-1-16-(12288|16384)'; then
+if [ "$mode" = apply ] && ! $high; then
   if ! windows "$sys32/reg.exe" query 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Sudo' /v Enabled | grep -qE 'REG_DWORD +0x[23]$'; then
     echo "nix-win: sudo.exe must run inline; run windows-rebuild switch once from an administrator terminal" >&2
     exit 1
@@ -41,8 +43,17 @@ if [ "$mode" = apply ] && ! windows "$sys32/whoami.exe" /groups | grep -qE 'S-1-
   echo "nix-win: applying through sudo"
 fi
 
+if [ "$mode" = apply ] || $high; then
+  entry="$(wslpath -w "$out")\\stage.cmd"
+else
+  copy=$(wslpath -u "$(windows "$sys32/cmd.exe" /d /c 'echo %TEMP%')")/nix-win
+  rm -rf "$copy"
+  cp -rL --no-preserve=mode "$out" "$copy"
+  entry="$(wslpath -w "$copy")\\nix-win.cmd"
+fi
+
 failed=0
-"${run[@]}" /d /c "$script" "$mode" </dev/null | tr -d '\r' >"$report" || failed=1
+"${run[@]}" /d /c "$entry" "$mode" </dev/null | tr -d '\r' >"$report" || failed=1
 awk -F '\t' -f "$NIX_WIN_COMPARE" "$report" "$out/expected.tsv" || failed=1
 
 echo "nix-win: $action took $((($(date +%s%N) - start) / 1000000)) ms"
