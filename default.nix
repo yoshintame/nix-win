@@ -8,7 +8,10 @@ let
   cfg = config.windows;
 in
 {
-  imports = [ ./options.nix ];
+  imports = [
+    ./options.nix
+    ./defaults
+  ];
 
   config = lib.mkIf cfg.enable {
     windows.build.toplevel = import ./render.nix { inherit lib pkgs cfg; };
