@@ -2,9 +2,13 @@ set -eu
 out=$1
 for f in apply.cmd users.cmd verify.cmd; do
   test -f "$out/$f"
-  if grep -qv $'\r$' "$out/$f"; then echo "$f: line without CRLF" >&2; exit 1; fi
+  if grep -qv $'\r$' "$out/$f"; then
+    echo "$f: line without CRLF" >&2
+    exit 1
+  fi
 done
 grep -qF 'reg add "HKLM\SOFTWARE\NixWin\Example" /v "Quote" /t REG_SZ /d "say \"hi\" & 100%% done\\" /f' "$out/apply.cmd"
+grep -qF '/v "Monitor" /t REG_SZ /d "27\" monitor ^& ^(x86^)^" /f' "$out/apply.cmd"
 grep -qF 'reg query "HKLM\SOFTWARE\NixWin\Removed" >nul 2>&1 && (reg delete "HKLM\SOFTWARE\NixWin\Removed" /f' "$out/apply.cmd"
 grep -qF 'reg add "%root%\Software\NixWin\Empty" /f' "$out/users.cmd"
 grep -qF 'reg load "%root%" "C:\Users\alice\NTUSER.DAT"' "$out/users.cmd"

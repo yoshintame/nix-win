@@ -18,6 +18,7 @@ _: {
         Path = ''C:\Program Files (x86)\Example\app.exe'';
         Quote = ''say "hi" & 100% done\'';
         Cyrillic = "Привет";
+        Monitor = ''27" monitor & (x86)'';
         Gone = null;
       };
       HKLM."SOFTWARE\\NixWin\\Removed" = null;
