@@ -2,6 +2,7 @@
   tweak,
   hklm,
   hkcu,
+  advanced,
   on,
   off,
   ...
@@ -14,7 +15,7 @@ in
   copilot = tweak.bool "Windows Copilot for all users and its taskbar button." (v: [
     (hklm ''${policies}\WindowsCopilot'' { TurnOffWindowsCopilot = off v; })
     (hkcu ''${userPolicies}\WindowsCopilot'' { TurnOffWindowsCopilot = off v; })
-    (hkcu ''Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'' { ShowCopilotButton = on v; })
+    (advanced { ShowCopilotButton = on v; })
   ]);
 
   recall = tweak.bool "Recall: saving screen snapshots and their AI analysis." (v: [

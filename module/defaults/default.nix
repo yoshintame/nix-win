@@ -15,6 +15,8 @@ let
   helpers = {
     hklm = key "HKLM";
     hkcu = key "HKCU";
+    advanced = key "HKCU" ''Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'';
+    contentDelivery = key "HKCU" ''Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'';
     on = v: if v then 1 else 0;
     off = v: if v then 0 else 1;
     service = name: startType: v: {
@@ -45,16 +47,13 @@ let
     };
   };
 
-  groups = lib.genAttrs [
-    "explorer"
-    "start"
-    "search"
-    "suggestions"
-    "privacy"
-    "ai"
-    "gaming"
-    "system"
-  ] (group: import ./${group}.nix helpers);
+  groups =
+    lib.mapAttrs' (file: _: lib.nameValuePair (lib.removeSuffix ".nix" file) (import ./${file} helpers))
+      (
+        lib.filterAttrs (
+          file: type: type == "regular" && lib.hasSuffix ".nix" file && file != "default.nix"
+        ) (builtins.readDir ./.)
+      );
 
   cfg = config.windows.defaults;
 in

@@ -2,35 +2,36 @@
   tweak,
   hklm,
   hkcu,
+  advanced,
+  contentDelivery,
   on,
   off,
   ...
 }:
 let
-  delivery = hkcu ''Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'';
   toast = name: hkcu ''Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\${name}'';
 in
 {
   welcomeExperience = tweak.bool "Windows welcome experience after updates and at sign-in." (v: [
-    (delivery { "SubscribedContent-310093Enabled" = on v; })
+    (contentDelivery { "SubscribedContent-310093Enabled" = on v; })
   ]);
 
   lockScreenTips = tweak.bool "Fun facts and tips on the lock screen." (v: [
-    (delivery {
+    (contentDelivery {
       "SubscribedContent-338387Enabled" = on v;
       RotatingLockScreenOverlayEnabled = on v;
     })
   ]);
 
   tips = tweak.bool "Tips, tricks and suggestions while using Windows." (v: [
-    (delivery {
+    (contentDelivery {
       "SubscribedContent-338389Enabled" = on v;
       SoftLandingEnabled = on v;
     })
   ]);
 
   settingsSuggestions = tweak.bool "Suggested content in the Settings app." (v: [
-    (delivery {
+    (contentDelivery {
       "SubscribedContent-338393Enabled" = on v;
       "SubscribedContent-353694Enabled" = on v;
       "SubscribedContent-353696Enabled" = on v;
@@ -45,7 +46,7 @@ in
   ]);
 
   accountNotifications = tweak.bool "Microsoft account notifications in Start and Settings." (v: [
-    (hkcu ''Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'' {
+    (advanced {
       Start_AccountNotifications = on v;
     })
     (hkcu ''Software\Microsoft\Windows\CurrentVersion\SystemSettings\AccountNotifications'' {
@@ -72,6 +73,6 @@ in
   ]);
 
   silentAppInstalls = tweak.bool "Silent installation of promoted apps." (v: [
-    (delivery { SilentInstalledAppsEnabled = on v; })
+    (contentDelivery { SilentInstalledAppsEnabled = on v; })
   ]);
 }

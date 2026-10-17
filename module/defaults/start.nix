@@ -1,13 +1,10 @@
 {
   tweak,
-  hkcu,
+  advanced,
+  contentDelivery,
   on,
   ...
 }:
-let
-  advanced = hkcu ''Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'';
-  delivery = hkcu ''Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'';
-in
 {
   recommendations = tweak.bool "Tips, shortcuts and new app recommendations in Start." (v: [
     (advanced { Start_IrisRecommendations = on v; })
@@ -18,7 +15,7 @@ in
   ]);
 
   suggestions = tweak.bool "App suggestions in Start." (v: [
-    (delivery {
+    (contentDelivery {
       "SubscribedContent-338388Enabled" = on v;
       SystemPaneSuggestionsEnabled = on v;
     })

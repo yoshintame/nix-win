@@ -1,13 +1,10 @@
 {
   tweak,
-  hkcu,
+  advanced,
   on,
   off,
   ...
 }:
-let
-  advanced = hkcu ''Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'';
-in
 {
   showFileExtensions = tweak.bool "Show extensions for known file types." (v: [
     (advanced { HideFileExt = off v; })
