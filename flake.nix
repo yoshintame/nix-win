@@ -1,36 +1,12 @@
 {
   description = "Declarative Windows configuration from NixOS-WSL: registry, services, firewall, files and typed tweaks";
 
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
-
-    flake-parts.url = "github:hercules-ci/flake-parts";
-
-    treefmt-nix = {
-      url = "github:numtide/treefmt-nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    git-hooks = {
-      url = "github:cachix/git-hooks.nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-  };
+  inputs.flake-parts.url = "github:hercules-ci/flake-parts";
 
   outputs =
-    inputs@{
-      flake-parts,
-      treefmt-nix,
-      git-hooks,
-      ...
-    }:
+    inputs@{ flake-parts, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
-      imports = [
-        treefmt-nix.flakeModule
-        git-hooks.flakeModule
-        ./parts/dev.nix
-        ./parts/checks.nix
-      ];
+      imports = [ flake-parts.flakeModules.partitions ];
 
       systems = [
         "aarch64-darwin"
@@ -38,5 +14,25 @@
       ];
 
       flake.nixosModules.default = ./module;
+
+      partitionedAttrs = {
+        checks = "dev";
+        devShells = "dev";
+        formatter = "dev";
+      };
+
+      partitions.dev = {
+        extraInputsFlake = ./dev;
+        module =
+          { inputs, ... }:
+          {
+            imports = [
+              inputs.treefmt-nix.flakeModule
+              inputs.git-hooks.flakeModule
+              ./parts/dev.nix
+              ./parts/checks.nix
+            ];
+          };
+      };
     };
 }
