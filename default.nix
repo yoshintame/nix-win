@@ -18,6 +18,7 @@ in
     windows.build.rebuild = import ./rebuild {
       inherit pkgs;
       inherit (cfg) flake;
+      nix = config.nix.package;
     };
     environment.systemPackages = [ cfg.build.rebuild ];
   };

@@ -10,66 +10,51 @@ let
     types
     ;
 
-  key = root: path: values: {
-    registry.${root} = lib.setAttrByPath (lib.splitString "\\" path) values;
-  };
+  key = root: path: values: { registry.${root}.${path} = values; };
 
   helpers = {
     hklm = key "HKLM";
     hkcu = key "HKCU";
     on = v: if v then 1 else 0;
     off = v: if v then 0 else 1;
-    service = name: v: {
-      services.${name} = {
-        startType = if v then "auto" else "disabled";
-        state = if v then "running" else "stopped";
-      };
+    service = name: startType: v: {
+      services.${name} =
+        if v then
+          { inherit startType; }
+        else
+          {
+            startType = "disabled";
+            state = "stopped";
+          };
     };
     tasks = names: v: {
       scheduledTasks = lib.genAttrs names (_: {
         enable = v;
       });
     };
+    tweak = {
+      bool = description: apply: {
+        type = types.bool;
+        inherit description apply;
+      };
+      enum = description: values: apply: {
+        type = types.enum (builtins.attrNames values);
+        inherit description;
+        apply = v: apply values.${v};
+      };
+    };
   };
 
-  tweak = {
-    bool = description: apply: {
-      type = types.bool;
-      inherit description apply;
-    };
-    enum = values: description: apply: {
-      type = types.enum (builtins.attrNames values);
-      inherit description;
-      apply = v: apply values.${v};
-    };
-  };
-
-  groups =
-    lib.genAttrs
-      [
-        "explorer"
-        "start"
-        "search"
-        "suggestions"
-        "privacy"
-        "ai"
-        "gaming"
-        "system"
-      ]
-      (
-        group:
-        import ./${group}.nix {
-          inherit tweak;
-          inherit (helpers)
-            hklm
-            hkcu
-            on
-            off
-            service
-            tasks
-            ;
-        }
-      );
+  groups = lib.genAttrs [
+    "explorer"
+    "start"
+    "search"
+    "suggestions"
+    "privacy"
+    "ai"
+    "gaming"
+    "system"
+  ] (group: import ./${group}.nix helpers);
 
   cfg = config.windows.defaults;
 in

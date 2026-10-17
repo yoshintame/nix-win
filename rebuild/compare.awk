@@ -1,11 +1,8 @@
 function trim(s) { gsub(/^ +| +$/, "", s); return s }
-$1 ~ /^user-/ && $1 != "user-" caller { next }
-$1 == "hive-" caller { next }
-{
-  file = dir "/out/" $1 "/" $2 ".txt"
+function check(scope, label,   file, status, line, found, present, actual) {
+  file = dir "/" scope "/" $2 ".txt"
   status = (getline line < file)
-  if (status < 0) { skipped[$1] = 1; next }
-  found = 0; present = 0; actual = ""
+  if (status < 0) { skipped[scope] = 1; return }
   while (status > 0) {
     sub(/\r$/, "", line)
     if (line == $5) found = 1
@@ -15,11 +12,14 @@ $1 == "hive-" caller { next }
   }
   close(file)
   if ($3 == "value" && found) ok++
-  else if ($3 == "value" && present) { drift++; print "drift    " $4 ": " trim(actual) ", expected " trim($5) }
-  else if ($3 == "value") { missing++; print "missing  " $4 }
-  else if (present) { drift++; print "present  " $4 }
+  else if ($3 == "value" && present) { drift++; print "drift    " label ": " trim(actual) ", expected " trim($5) }
+  else if ($3 == "value") { missing++; print "missing  " label }
+  else if (present) { drift++; print "present  " label }
   else ok++
 }
+BEGIN { n = split(users, names, " ") }
+$1 == "machine" { check("machine", $4) }
+$1 == "user" { for (i = 1; i <= n; i++) check("user-" names[i], names[i] ": " $4) }
 END {
   printf "nix-windows: %d ok, %d drift, %d missing", ok, drift, missing
   for (s in skipped) printf ", %s not checked", s

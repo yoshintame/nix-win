@@ -15,61 +15,45 @@ let
     optional
     optionals
     ;
-  inherit (cmd) fail quote;
+  inherit (cmd) fail quote psString;
 
-  entries = imap1 (i: target: {
+  winDir = path: concatStringsSep "\\" (lib.init (lib.splitString "\\" path));
+
+  files = imap1 (i: target: {
     inherit target;
-    stored = "files/${cmd.pad i}";
+    stored = "files\\${cmd.pad i}";
     changed = "changed_${cmd.pad i}";
-    spec = cfg.files.${target};
+    inherit (cfg.files.${target}) text grants onChange;
   }) (builtins.attrNames cfg.files);
 in
 {
-  fileOutputs = map (
-    f:
-    if f.spec.source != null then
-      {
-        path = f.stored;
-        encoding = "copy";
-        source = "${f.spec.source}";
-      }
-    else
-      {
-        path = f.stored;
-        encoding = "utf8";
-        inherit (f.spec) text;
-      }
-  ) entries;
+  fileOutputs = lib.listToAttrs (
+    map (f: lib.nameValuePair (lib.replaceStrings [ "\\" ] [ "/" ] f.stored) f.text) files
+  );
 
   capabilities = map (
     c:
-    "dism /online /get-capabilityinfo /capabilityname:${c} | find \"State : Installed\" >nul || (dism /online /add-capability /capabilityname:${c} /norestart >nul || ${fail "capability ${c}"})"
+    cmd.powershell "if ((Get-WindowsCapability -Online -Name ${psString c}).State -ne 'Installed') { Add-WindowsCapability -Online -Name ${psString c} -ErrorAction Stop | Out-Null }" "capability ${c}"
   ) cfg.capabilities;
 
-  files = concatMap (
-    f:
+  firewall = mapAttrsToList (
+    name: r:
     let
-      src = "\"%~dp0${cmd.winPath f.stored}\"";
-      dst = quote f.target;
-      grants = concatMapStrings (g: "/grant ${g} ") f.spec.grants;
+      params = concatStringsSep " " (
+        [
+          "-Name ${psString name}"
+          "-DisplayName ${psString r.displayName}"
+          "-Direction ${r.direction}"
+          "-Action ${r.action}"
+          "-Protocol ${r.protocol}"
+          "-Enabled ${if r.enable then "True" else "False"}"
+        ]
+        ++ optional (r.localPort != null) "-LocalPort ${toString r.localPort}"
+        ++ optional (r.remoteAddress != [ ]) "-RemoteAddress ${concatStringsSep "," r.remoteAddress}"
+      );
     in
-    [
-      "if not exist ${quote (cmd.winDir f.target)} mkdir ${quote (cmd.winDir f.target)}"
-      "fc /b ${src} ${dst} >nul 2>&1 || (copy /y ${src} ${dst} >nul && set ${f.changed}=1 || ${fail f.target})"
-    ]
-    ++ optional (
-      f.spec.grants != [ ]
-    ) "icacls ${dst} /inheritance:r ${grants}>nul || ${fail "acl ${f.target}"}"
-  ) entries;
-
-  onChange = concatMap (
-    f:
-    optionals (f.spec.onChange != "") (
-      [ "if not defined ${f.changed} goto after_${f.changed}" ]
-      ++ filter (l: l != "") (lib.splitString "\n" f.spec.onChange)
-      ++ [ ":after_${f.changed}" ]
-    )
-  ) entries;
+    cmd.powershell "Get-NetFirewallRule -Name ${psString name} -ErrorAction SilentlyContinue | Remove-NetFirewallRule; Get-NetFirewallRule -DisplayName ${psString r.displayName} -ErrorAction SilentlyContinue | Remove-NetFirewallRule; New-NetFirewallRule ${params} -ErrorAction Stop | Out-Null" "firewall ${name}"
+  ) cfg.firewall.rules;
 
   services = concatLists (
     mapAttrsToList (
@@ -88,28 +72,30 @@ in
     ) cfg.services
   );
 
-  firewall = concatLists (
-    mapAttrsToList (
-      name: r:
-      let
-        args = concatStringsSep " " (
-          [
-            "dir=${r.direction}"
-            "action=${r.action}"
-            "protocol=${r.protocol}"
-            "enable=${if r.enable then "yes" else "no"}"
-          ]
-          ++ optional (r.localPort != null) "localport=${toString r.localPort}"
-          ++ optional (r.remoteAddress != [ ]) "remoteip=${concatStringsSep "," r.remoteAddress}"
-          ++ optional (r.program != null) "program=${quote r.program}"
-        );
-      in
-      [
-        "netsh advfirewall firewall delete rule name=${quote name} >nul 2>&1"
-        "netsh advfirewall firewall add rule name=${quote name} ${args} >nul || ${fail "firewall ${name}"}"
-      ]
-    ) cfg.firewall.rules
-  );
+  files = concatMap (
+    f:
+    let
+      src = "\"%~dp0${f.stored}\"";
+      dst = quote f.target;
+      grants = concatMapStrings (g: "/grant ${g} ") f.grants;
+    in
+    [
+      "if not exist ${quote (winDir f.target)} mkdir ${quote (winDir f.target)}"
+      "fc /b ${src} ${dst} >nul 2>&1 || (copy /y ${src} ${dst} >nul && set ${f.changed}=1 || ${fail f.target})"
+    ]
+    ++ optional (
+      f.grants != [ ]
+    ) "icacls ${dst} /inheritance:r ${grants}>nul || ${fail "acl ${f.target}"}"
+  ) files;
+
+  onChange = concatMap (
+    f:
+    optionals (f.onChange != "") (
+      [ "if not defined ${f.changed} goto after_${f.changed}" ]
+      ++ filter (l: l != "") (lib.splitString "\n" f.onChange)
+      ++ [ ":after_${f.changed}" ]
+    )
+  ) files;
 
   power =
     mapAttrsToList (
@@ -133,10 +119,10 @@ in
 
   adapters = optional (cfg.networkAdapters.powerManagement != { }) (
     let
-      params = concatStringsSep " " (
-        mapAttrsToList (n: v: "-${n} ${v}") cfg.networkAdapters.powerManagement
-      );
+      pm = cfg.networkAdapters.powerManagement;
+      drift = concatStringsSep " -or " (mapAttrsToList (n: v: "$_.${n} -ne ${psString v}") pm);
+      params = concatStringsSep " " (mapAttrsToList (n: v: "-${n} ${v}") pm);
     in
-    "powershell -NoProfile -Command \"Get-NetAdapter -Physical | Where-Object MediaType -eq '802.3' | Set-NetAdapterPowerManagement ${params}\" || ${fail "network adapter power management"}"
+    cmd.powershell "Get-NetAdapter -Physical | Where-Object MediaType -eq '802.3' | Get-NetAdapterPowerManagement | Where-Object { ${drift} } | ForEach-Object { Set-NetAdapterPowerManagement -Name $_.Name ${params} -ErrorAction Stop }" "network adapter power management"
   );
 }

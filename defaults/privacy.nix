@@ -10,23 +10,22 @@
 }:
 {
   telemetry =
-    tweak.enum
+    tweak.enum "Diagnostic data level sent to Microsoft; Pro treats lower levels as required."
       {
         required = 1;
         optional = 3;
       }
-      "Diagnostic data level sent to Microsoft; Pro treats lower levels as required."
       (v: [ (hklm ''SOFTWARE\Policies\Microsoft\Windows\DataCollection'' { AllowTelemetry = v; }) ]);
 
   telemetryService = tweak.bool "Connected User Experiences and Telemetry service (DiagTrack)." (v: [
-    (service "DiagTrack" v)
+    (service "DiagTrack" "auto" v)
   ]);
 
   telemetryTasks =
-    tweak.bool "Scheduled tasks that collect compatibility, CEIP and feedback data."
+    tweak.bool
+      "Scheduled tasks that collect program inventory, CEIP, disk diagnostic and feedback data."
       (v: [
         (tasks [
-          ''\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser''
           ''\Microsoft\Windows\Application Experience\ProgramDataUpdater''
           ''\Microsoft\Windows\Autochk\Proxy''
           ''\Microsoft\Windows\Customer Experience Improvement Program\Consolidator''

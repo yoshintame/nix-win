@@ -2,8 +2,9 @@
 let
   inherit (lib) mkOption types;
 
-  tree = mkOption {
-    type = types.anything;
+  value = types.nullOr (types.either types.ints.u32 types.str);
+  keys = mkOption {
+    type = types.attrsOf (types.nullOr (types.attrsOf value));
     default = { };
   };
 in
@@ -15,19 +16,9 @@ in
       type = types.str;
     };
 
-    registry = mkOption {
-      type = types.submodule {
-        options = {
-          HKLM = tree;
-          HKCU = tree;
-        };
-      };
-      default = { };
-    };
-
-    deletedKeys = mkOption {
-      type = types.listOf (types.strMatching ''(HKLM|HKCU)\\.+'');
-      default = [ ];
+    registry = {
+      HKLM = keys;
+      HKCU = keys;
     };
 
     users = mkOption {
@@ -35,12 +26,9 @@ in
         types.submodule (
           { name, ... }:
           {
-            options = {
-              profile = mkOption {
-                type = types.str;
-                default = ''C:\Users\${name}'';
-              };
-              registry = tree;
+            options.profile = mkOption {
+              type = types.str;
+              default = ''C:\Users\${name}'';
             };
           }
         )
@@ -80,44 +68,47 @@ in
 
     firewall.rules = mkOption {
       type = types.attrsOf (
-        types.submodule {
-          options = {
-            enable = mkOption {
-              type = types.bool;
-              default = true;
+        types.submodule (
+          { name, ... }:
+          {
+            options = {
+              displayName = mkOption {
+                type = types.str;
+                default = name;
+              };
+              enable = mkOption {
+                type = types.bool;
+                default = true;
+              };
+              direction = mkOption {
+                type = types.enum [
+                  "Inbound"
+                  "Outbound"
+                ];
+                default = "Inbound";
+              };
+              action = mkOption {
+                type = types.enum [
+                  "Allow"
+                  "Block"
+                ];
+                default = "Allow";
+              };
+              protocol = mkOption {
+                type = types.str;
+                default = "TCP";
+              };
+              localPort = mkOption {
+                type = types.nullOr (types.either types.port types.str);
+                default = null;
+              };
+              remoteAddress = mkOption {
+                type = types.listOf types.str;
+                default = [ ];
+              };
             };
-            direction = mkOption {
-              type = types.enum [
-                "in"
-                "out"
-              ];
-              default = "in";
-            };
-            action = mkOption {
-              type = types.enum [
-                "allow"
-                "block"
-              ];
-              default = "allow";
-            };
-            protocol = mkOption {
-              type = types.str;
-              default = "TCP";
-            };
-            localPort = mkOption {
-              type = types.nullOr (types.either types.port types.str);
-              default = null;
-            };
-            remoteAddress = mkOption {
-              type = types.listOf types.str;
-              default = [ ];
-            };
-            program = mkOption {
-              type = types.nullOr types.str;
-              default = null;
-            };
-          };
-        }
+          }
+        )
       );
       default = { };
     };
@@ -132,12 +123,7 @@ in
         types.submodule {
           options = {
             text = mkOption {
-              type = types.nullOr types.lines;
-              default = null;
-            };
-            source = mkOption {
-              type = types.nullOr types.path;
-              default = null;
+              type = types.lines;
             };
             grants = mkOption {
               type = types.listOf types.str;
