@@ -51,20 +51,25 @@ windows-rebuild check    # verify only; non-zero exit on drift
 | Option | Applied with |
 |---|---|
 | `windows.defaults.<group>.<tweak>` | typed tweaks (`explorer`, `start`, `search`, `suggestions`, `privacy`, `ai`, `gaming`, `system`); `null` leaves Windows untouched |
-| `windows.registry.{HKLM,HKCU}."<key path>".<value>` | `reg add` / `reg delete`; an integer is `REG_DWORD`, a string `REG_SZ`, `null` deletes the value or the whole key |
-| `windows.users.<name>.profile` | HKCU of other users through `reg load` while they are signed out |
+| `windows.registry.{HKLM,HKCU}."<key path>".<value>` | `reg add` / `reg delete`; an integer is `REG_DWORD`, a string `REG_SZ`, `null` deletes the value or the whole key, `{ }` creates an empty key |
+| `windows.users.<name>.profile` | HKCU of every listed user: the caller's directly, others through `reg load` while they are signed out |
 | `windows.services.<name>` | `sc config`, `net start` / `net stop` |
-| `windows.firewall.rules.<Name>` | `New-NetFirewallRule`, replacing rules with the same `Name` or `DisplayName` |
-| `windows.capabilities` | `Add-WindowsCapability` |
-| `windows.files."<path>"` | copy when changed, `icacls` grants, `onChange` commands |
-| `windows.power`, `windows.scheduledTasks`, `windows.networkAdapters.powerManagement` | `powercfg`, `schtasks`, `Set-NetAdapterPowerManagement` |
+| `windows.firewall.rules.<Name>` | `New-NetFirewallRule` or `Set-NetFirewallRule` by the stable `Name`, optionally bound to an interface; other rules with the same `DisplayName` are removed |
+| `windows.capabilities` | `Get-WindowsCapability` / `Add-WindowsCapability` |
+| `windows.files."<path>"` | copy when changed, ACL reset to the given grants with Administrators as owner, `onChange` commands right after the copy |
+| `windows.power`, `windows.scheduledTasks`, `windows.networkAdapters.powerManagement` | `powercfg`, `schtasks`, `Set-NetAdapterPowerManagement` only where a supported property drifts |
 
-Tweaks and raw registry values merge into one tree: setting the same value differently in both fails evaluation, `lib.mkForce` overrides.
+Registry paths and value names are case-insensitive on Windows, so two spellings that differ only in case fail evaluation. Tweaks and raw values merge into one tree: setting the same value differently fails evaluation, `lib.mkForce` overrides. HKCU values need at least one entry in `windows.users`; `HKCU\Software\Classes` is rejected because a loaded `NTUSER.DAT` does not contain it.
 
 ## How it runs
 
-- The distribution needs `wsl.interop.register = true`; Windows tools are called by absolute path.
-- `switch` runs `apply.cmd` straight from the store over `\\wsl.localhost`. From a normal terminal it elevates once through the built-in `sudo.exe` in inline mode (`windows.defaults.system.sudo = "inline"`); from an SSH session the token is already elevated and no prompt appears.
-- The caller's HKCU is written directly; other users' hives are loaded, written and unloaded, and skipped while they are signed in.
-- Verification reads every declared value back with `reg query` and compares it with the line Nix expects.
-- Not covered: rollback, drift detection outside the registry, values with line breaks.
+- The distribution needs `wsl.interop.register = true`; Windows tools are called by absolute path and scripts run with a system-only `PATH` and `PSModulePath`.
+- `nix-win.cmd apply` runs straight from the store over `\\wsl.localhost` in one `cmd.exe /d` process. From a normal terminal it elevates once through the built-in `sudo.exe`, which must run inline or with input disabled (`windows.defaults.system.sudo`); from an SSH session or SYSTEM the token is already elevated.
+- Every applied value, deletion and created key is read back with `reg query`; results go to stdout between `@@ <scope> <n>` markers and `compare.awk` matches them against the lines Nix expects. `switch` and `check` fail on drift, on missing values and when the machine scope was not verified at all.
+- Other users' hives are loaded, written, verified and unloaded; a signed-in user (including a disconnected session) is skipped and reported as not checked.
+
+## Threat model
+
+The script that runs elevated comes from the NixOS-WSL distribution. Anyone who can run code as the Windows user can become root in that distribution (`wsl -u root`) and change what the next `switch` executes, so root in the distribution is effectively administrator on Windows. nix-win removes the cheaper paths — no payload copy in `%TEMP%`, no files written by the elevated process, no `AutoRun`, no user PowerShell modules, no user `PATH` — but it does not create a boundary between the Windows user and the elevated run.
+
+Not covered: rollback, drift detection outside the registry, values with line breaks, `REG_EXPAND_SZ` / `REG_MULTI_SZ` / binary values, the default value of a key.
