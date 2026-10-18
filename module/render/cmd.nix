@@ -36,6 +36,10 @@ rec {
     in
     "\"${concatStringsSep "\\\"" (imap0 quotePiece pieces)}${closing}";
   psString = s: "'${replaceStrings psQuotes (map (q: q + q) psQuotes) s}'";
+  psArray = values: "@(${concatStringsSep ", " (map psString values)})";
+  psHashtable =
+    attrs:
+    "@{ ${concatStringsSep "; " (lib.mapAttrsToList (name: value: "${name} = ${value}") attrs)} }";
   escapeEcho = s: percent (caret s);
   pad = i: lib.fixedWidthString 4 "0" (toString i);
   fail = label: "(echo FAILED ${escapeEcho label}& set failed=1)";

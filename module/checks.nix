@@ -57,6 +57,24 @@ let
   }) (attrNames cfg.registry.HKCU);
 
   rules = attrNames cfg.firewall.rules;
+  firewall =
+    each "firewall rule name" patterns.name rules
+    ++ unique "firewall rule names differ only in case" lib.id rules
+    ++ unique "firewall rules share a display name" (name: cfg.firewall.rules.${name}.displayName) rules
+    ++ concatLists (
+      mapAttrsToList (
+        name: rule:
+        optionals (rule.localPort != null) [
+          {
+            assertion = builtins.elem rule.protocol [
+              "TCP"
+              "UDP"
+            ];
+            message = "nix-win: firewall rule ${name} sets localPort, which needs protocol TCP or UDP";
+          }
+        ]
+      ) cfg.firewall.rules
+    );
 in
 registry "HKLM" cfg.registry.HKLM
 ++ registry "HKCU" cfg.registry.HKCU
@@ -68,23 +86,7 @@ registry "HKLM" cfg.registry.HKLM
   }
 ]
 ++ each "user name" patterns.name (attrNames cfg.users)
-++ each "firewall rule name" patterns.name rules
-++ unique "firewall rule names differ only in case" lib.id rules
-++ unique "firewall rules share a display name" (name: cfg.firewall.rules.${name}.displayName) rules
-++ concatLists (
-  mapAttrsToList (
-    name: rule:
-    optionals (rule.localPort != null) [
-      {
-        assertion = builtins.elem rule.protocol [
-          "TCP"
-          "UDP"
-        ];
-        message = "nix-win: firewall rule ${name} sets localPort, which needs protocol TCP or UDP";
-      }
-    ]
-  ) cfg.firewall.rules
-)
+++ firewall
 ++ each "service name" patterns.name (attrNames cfg.services)
 ++ each "power setting" patterns.powerSetting (attrNames cfg.power.timeouts)
 ++ each "network adapter property" patterns.word (attrNames cfg.networkAdapters.powerManagement)

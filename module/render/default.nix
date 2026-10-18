@@ -7,9 +7,11 @@ let
   inherit (lib)
     concatLists
     concatMap
+    concatMapStrings
     concatStringsSep
     imap1
     mapAttrsToList
+    mergeAttrsList
     ;
 
   cmd = import ./cmd.nix { inherit lib; };
@@ -81,7 +83,7 @@ let
   ];
   powershellFile = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File";
 
-  powershellScript = lib.concatStringsSep "\n" (
+  powershellScript = concatStringsSep "\n" (
     [
       "$ErrorActionPreference = 'Stop'"
       "$env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')"
@@ -138,12 +140,12 @@ let
     "nix-win.cmd" = cmd.crlf script;
     "stage.cmd" = cmd.crlf stage;
     "stage.ps1" = bom + builtins.readFile ./stage.ps1;
-    "expected.tsv" = lib.concatMapStrings (row: row + "\n") (
+    "expected.tsv" = concatMapStrings (row: row + "\n") (
       expected "machine" "" machine ++ concatMap (name: expected "user-${name}" "${name}: " hkcu) users
     );
   }
   // lib.optionalAttrs (commands.powershell != [ ]) { "nix-win.ps1" = bom + powershellScript; }
-  // commands.fileOutputs;
+  // mergeAttrsList (map (file: file.output) commands.files);
 in
 pkgs.runCommand "nix-win" { } (
   lib.concatStrings (

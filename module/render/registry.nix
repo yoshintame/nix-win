@@ -8,9 +8,20 @@ let
     toLower
     ;
 
-  regType = v: if builtins.isInt v then "REG_DWORD" else "REG_SZ";
-  regData = v: if builtins.isInt v then toString v else cmd.arg v;
-  shown = v: if builtins.isInt v then "0x${toLower (toHexString v)}" else v;
+  encode =
+    v:
+    if builtins.isInt v then
+      {
+        type = "REG_DWORD";
+        data = toString v;
+        shown = "0x${toLower (toHexString v)}";
+      }
+    else
+      {
+        type = "REG_SZ";
+        data = cmd.arg v;
+        shown = v;
+      };
 in
 { root, label }:
 keys:
@@ -19,42 +30,44 @@ concatLists (
     path: values:
     let
       key = "\"${root}\\${cmd.percent path}\"";
-      operation =
-        name: value:
+      target = name: "${key}${optionalString (name != null) " /v ${cmd.arg name}"}";
+      fullLabel = name: "${label}\\${path}${optionalString (name != null) "\\${name}"}";
+      base = name: {
+        label = fullLabel name;
+        query = "reg query ${target name}";
+      };
+      add = name: data: "reg add ${target name}${data} /f >nul 2>&1 || ${cmd.fail (fullLabel name)}";
+
+      delete =
+        name:
+        base name
+        // {
+          kind = "absent";
+          line = "";
+          apply = "reg query ${target name} >nul 2>&1 && (reg delete ${target name} /f >nul 2>&1 || ${cmd.fail (fullLabel name)})";
+        };
+      present = base null // {
+        kind = "present";
+        line = "";
+        apply = add null "";
+      };
+      value =
+        name: v:
         let
-          target = "${key}${optionalString (name != null) " /v ${cmd.arg name}"}";
-          fullLabel = "${label}\\${path}${optionalString (name != null) "\\${name}"}";
-          query = "reg query ${target}";
-          add = data: "reg add ${target}${data} /f >nul 2>&1 || ${cmd.fail fullLabel}";
+          e = encode v;
         in
-        {
-          label = fullLabel;
-          inherit query;
-        }
-        // (
-          if value == null then
-            {
-              kind = "absent";
-              line = "";
-              apply = "${query} >nul 2>&1 && (reg delete ${target} /f >nul 2>&1 || ${cmd.fail fullLabel})";
-            }
-          else if value == { } then
-            {
-              kind = "present";
-              line = "";
-              apply = add "";
-            }
-          else
-            {
-              kind = "value";
-              line = "    ${name}    ${regType value}    ${shown value}";
-              apply = add " /t ${regType value} /d ${regData value}";
-            }
-        );
+        base name
+        // {
+          kind = "value";
+          line = "    ${name}    ${e.type}    ${e.shown}";
+          apply = add name " /t ${e.type} /d ${e.data}";
+        };
     in
-    if values == null || values == { } then
-      [ (operation null values) ]
+    if values == null then
+      [ (delete null) ]
+    else if values == { } then
+      [ present ]
     else
-      mapAttrsToList operation values
+      mapAttrsToList (name: v: if v == null then delete name else value name v) values
   ) keys
 )

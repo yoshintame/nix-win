@@ -18,15 +18,14 @@ let
     fail
     failReturn
     quote
+    psArray
+    psHashtable
     psString
     ;
 
   winDir = path: concatStringsSep "\\" (lib.init (lib.splitString "\\" path));
-  psHashtable =
-    attrs: "@{ ${concatStringsSep "; " (mapAttrsToList (name: value: "${name} = ${value}") attrs)} }";
-  psArray = values: "@(${concatStringsSep ", " (map psString values)})";
 
-  files = imap1 (i: target: {
+  entries = imap1 (i: target: {
     inherit target;
     id = cmd.pad i;
     pending = "\"%ProgramData%\\nix-win\\pending\\${
@@ -37,8 +36,6 @@ let
   }) (builtins.attrNames cfg.files);
 in
 {
-  fileOutputs = lib.listToAttrs (map (f: lib.nameValuePair "files/${f.id}" f.text) files);
-
   powershell =
     map (c: {
       label = "capability ${c}";
@@ -59,7 +56,7 @@ in
       in
       {
         label = "firewall ${name}";
-        body = lib.concatStringsSep "\n" [
+        body = concatStringsSep "\n" [
           "$n = ${psString name}; $d = ${psString r.displayName}; $p = ${params}"
           "if (Get-NetFirewallRule -Name $n -ErrorAction SilentlyContinue) { Set-NetFirewallRule -Name $n -NewDisplayName $d @p } else { New-NetFirewallRule -Name $n -DisplayName $d @p | Out-Null }"
           "Get-NetFirewallRule -DisplayName ([WildcardPattern]::Escape($d)) -ErrorAction SilentlyContinue | Where-Object Name -ne $n | Remove-NetFirewallRule"
@@ -68,7 +65,7 @@ in
     ) cfg.firewall.rules
     ++ optional (cfg.networkAdapters.powerManagement != { }) {
       label = "network adapter power management";
-      body = lib.concatStringsSep "\n" [
+      body = concatStringsSep "\n" [
         "$d = ${psHashtable (lib.mapAttrs (_: psString) cfg.networkAdapters.powerManagement)}"
         "Get-NetAdapter -Physical | Where-Object MediaType -eq '802.3' | Get-NetAdapterPowerManagement | ForEach-Object {"
         "  $a = $_; $p = @{}"
@@ -102,17 +99,18 @@ in
       src = "\"%~dp0files\\${f.id}\"";
       dst = quote f.target;
       grants = concatMapStrings (g: " /grant:r ${g}") f.grants;
-      onChange = f.onChange != [ ];
+      hasOnChange = f.onChange != [ ];
     in
     {
       inherit label;
+      output."files/${f.id}" = f.text;
       body = concatLists [
         [
           "if not exist ${quote (winDir f.target)} mkdir ${quote (winDir f.target)}"
           "fc /b ${src} ${dst} >nul 2>&1 && goto ${label}_installed"
         ]
         (optional (f.validate != null) "${f.validate src} || ${failReturn "validate ${f.target}"}")
-        (optionals onChange [
+        (optionals hasOnChange [
           "if not exist \"%ProgramData%\\nix-win\\pending\" mkdir \"%ProgramData%\\nix-win\\pending\""
           "type nul > ${f.pending} || ${failReturn "pending ${f.target}"}"
         ])
@@ -123,14 +121,14 @@ in
         (optional (f.grants != [ ])
           "icacls ${dst} /reset >nul && icacls ${dst} /inheritance:r${grants} >nul && icacls ${dst} /setowner *S-1-5-32-544 >nul || ${fail "acl ${f.target}"}"
         )
-        (optionals onChange (
+        (optionals hasOnChange (
           [ "if not exist ${f.pending} exit /b 0" ]
           ++ map (line: "${line} || ${failReturn "on change of ${f.target}"}") f.onChange
           ++ [ "del ${f.pending}" ]
         ))
       ];
     }
-  ) files;
+  ) entries;
 
   power =
     mapAttrsToList (

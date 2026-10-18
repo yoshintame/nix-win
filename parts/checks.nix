@@ -49,9 +49,6 @@ in
       // lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
         render = pkgs.runCommandLocal "nix-win-render" { } ''
           bash ${../tests/render.sh} ${render}
-          touch $out
-        '';
-        compare = pkgs.runCommandLocal "nix-win-compare" { } ''
           bash ${../tests/compare.sh} ${../module/rebuild/compare.awk} ${render}/expected.tsv
           touch $out
         '';
