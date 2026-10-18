@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+$env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
 
 $root = Join-Path $env:ProgramData 'nix-win'
 $administrators = New-Object System.Security.Principal.SecurityIdentifier 'S-1-5-32-544'
