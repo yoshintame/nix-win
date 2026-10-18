@@ -59,7 +59,7 @@ windows-rebuild check    # verify only; non-zero exit on drift
 | `windows.files."<path>"` | copy when changed and accepted by the optional `validate` command, ACL reset to the given grants with Administrators as owner, `onChange` commands right after the copy and again on every `switch` until they all succeed |
 | `windows.power`, `windows.scheduledTasks`, `windows.networkAdapters.powerManagement` | `powercfg`, `schtasks`, `Set-NetAdapterPowerManagement` only where a supported property drifts |
 
-Registry paths and value names are case-insensitive on Windows, so two spellings that differ only in case fail evaluation. Tweaks and raw values merge into one tree: setting the same value differently fails evaluation, `lib.mkForce` overrides. HKCU values need at least one entry in `windows.users`; `HKCU\Software\Classes` is rejected because a loaded `NTUSER.DAT` does not contain it.
+Registry paths and value names are case-insensitive on Windows, so two spellings that differ only in the case of ASCII letters fail evaluation (`lib.toLower` folds no other letters). Tweaks and raw values merge into one tree: setting the same value differently fails evaluation, `lib.mkForce` overrides. HKCU values need at least one entry in `windows.users`; `HKCU\Software\Classes` is rejected because a loaded `NTUSER.DAT` does not contain it.
 
 ## How it runs
 
