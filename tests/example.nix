@@ -33,6 +33,7 @@ _: {
     };
     files."C:\\ProgramData\\NixWin\\example.conf" = {
       text = "key = value\n";
+      validate = file: "findstr /b /c:key ${file} >nul";
       onChange = "echo changed";
     };
     power.timeouts.standby-timeout-ac = 0;

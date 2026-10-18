@@ -31,12 +31,12 @@ report=$(mktemp)
 trap 'rm -f "$report"' EXIT
 
 high=false
-if windows "$sys32/whoami.exe" /groups | grep -qE 'S-1-16-(12288|16384)'; then high=true; fi
+if windows "$sys32/whoami.exe" /groups | grep -E 'S-1-16-(12288|16384)' >/dev/null; then high=true; fi
 
 run=("$sys32/cmd.exe")
 if [ "$mode" = apply ] && ! $high; then
-  if ! windows "$sys32/reg.exe" query 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Sudo' /v Enabled | grep -qE 'REG_DWORD +0x[23]$'; then
-    echo "nix-win: sudo.exe must run inline; run windows-rebuild switch once from an administrator terminal" >&2
+  if ! windows "$sys32/reg.exe" query 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Sudo' /v Enabled | grep -E 'REG_DWORD +0x[23]$' >/dev/null; then
+    echo "nix-win: sudo.exe must run inline or with input disabled; run windows-rebuild switch once from an administrator terminal" >&2
     exit 1
   fi
   run=("$sys32/sudo.exe" 'C:\Windows\System32\cmd.exe')

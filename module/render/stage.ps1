@@ -14,26 +14,49 @@ foreach ($grant in @(@('S-1-5-18', 'FullControl'), @('S-1-5-32-544', 'FullContro
   $acl.AddAccessRule($rule)
 }
 
+$directory = [System.IO.FileAttributes]::Directory
+$reparsePoint = [System.IO.FileAttributes]::ReparsePoint
+
+function Get-RootAttributes {
+  try {
+    [System.IO.File]::GetAttributes($root)
+  } catch [System.IO.FileNotFoundException], [System.IO.DirectoryNotFoundException] {
+    $null
+  }
+}
+
 function Test-Trusted {
-  $current = Get-Acl $root
+  $attributes = Get-RootAttributes
+  if ($null -eq $attributes -or ($attributes -band $reparsePoint) -or -not ($attributes -band $directory)) {
+    return $false
+  }
+  $current = Get-Acl -LiteralPath $root
   $current.AreAccessRulesProtected -and
     $current.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -eq $administrators.Value
 }
 
-if ((Test-Path $root) -and -not (Test-Trusted)) {
-  icacls $root /setowner '*S-1-5-32-544' /t /c /q | Out-Null
-  icacls $root /reset /t /c /q | Out-Null
-  Remove-Item $root -Recurse -Force
+$attributes = Get-RootAttributes
+if ($null -ne $attributes -and -not (Test-Trusted)) {
+  $aside = "$root-untrusted-$([guid]::NewGuid().ToString('N'))"
+  if (($attributes -band $reparsePoint) -and ($attributes -band $directory)) {
+    [System.IO.Directory]::Delete($root)
+  } elseif ($attributes -band $reparsePoint) {
+    [System.IO.File]::Delete($root)
+  } elseif ($attributes -band $directory) {
+    [System.IO.Directory]::Move($root, $aside)
+  } else {
+    [System.IO.File]::Move($root, $aside)
+  }
 }
-if (-not (Test-Path $root)) {
+if ($null -eq (Get-RootAttributes)) {
   [void][System.IO.Directory]::CreateDirectory($root, $acl)
 }
 if (-not (Test-Trusted)) {
-  throw "$root is not owned by Administrators with a protected ACL"
+  throw "$root is not a directory owned by Administrators with a protected ACL"
 }
 
 $current = Join-Path $root 'current'
-if (Test-Path $current) {
-  Remove-Item $current -Recurse -Force
+if (Test-Path -LiteralPath $current) {
+  Remove-Item -LiteralPath $current -Recurse -Force
 }
 Copy-Item -LiteralPath $PSScriptRoot -Destination $current -Recurse

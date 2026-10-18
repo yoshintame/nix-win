@@ -54,9 +54,9 @@ windows-rebuild check    # verify only; non-zero exit on drift
 | `windows.registry.{HKLM,HKCU}."<key path>".<value>` | `reg add` / `reg delete`; an integer is `REG_DWORD`, a string `REG_SZ`, `null` deletes the value or the whole key, `{ }` creates an empty key |
 | `windows.users.<name>.profile` | HKCU of every listed user: the caller's directly, others through `reg load` while they are signed out |
 | `windows.services.<name>` | `sc config`, `net start` / `net stop` |
-| `windows.firewall.rules.<Name>` | `New-NetFirewallRule` or `Set-NetFirewallRule` by the stable `Name`, optionally bound to an interface; other rules with the same `DisplayName` are removed |
+| `windows.firewall.rules.<Name>` | `New-NetFirewallRule` or `Set-NetFirewallRule` by the stable `Name`, optionally bound to an interface; a port, address or interface left unset is reset to `Any`, other rules with the same `DisplayName` are removed |
 | `windows.capabilities` | `Get-WindowsCapability` / `Add-WindowsCapability` |
-| `windows.files."<path>"` | copy when changed, ACL reset to the given grants with Administrators as owner, `onChange` commands right after the copy |
+| `windows.files."<path>"` | copy when changed and accepted by the optional `validate` command, ACL reset to the given grants with Administrators as owner, `onChange` commands right after the copy and again on every `switch` until they all succeed |
 | `windows.power`, `windows.scheduledTasks`, `windows.networkAdapters.powerManagement` | `powercfg`, `schtasks`, `Set-NetAdapterPowerManagement` only where a supported property drifts |
 
 Registry paths and value names are case-insensitive on Windows, so two spellings that differ only in case fail evaluation. Tweaks and raw values merge into one tree: setting the same value differently fails evaluation, `lib.mkForce` overrides. HKCU values need at least one entry in `windows.users`; `HKCU\Software\Classes` is rejected because a loaded `NTUSER.DAT` does not contain it.
@@ -64,7 +64,7 @@ Registry paths and value names are case-insensitive on Windows, so two spellings
 ## How it runs
 
 - The distribution needs `wsl.interop.register = true`; Windows tools are called by absolute path and scripts run with a system-only `PATH` and `PSModulePath`.
-- `switch` elevates once: through the built-in `sudo.exe` from a normal terminal (it must run inline or with input disabled, `windows.defaults.system.sudo`), directly from an SSH session or SYSTEM. The elevated `stage.cmd` copies the rendered files from the store (over `\\wsl.localhost`) into `%ProgramData%\nix-win`, a directory only Administrators and SYSTEM can write, and runs `nix-win.cmd apply` from there in one `cmd.exe /d` process; capabilities, firewall rules and adapters go through one PowerShell script. `check` without elevation runs `nix-win.cmd verify` from a copy in `%TEMP%`.
+- `switch` elevates once: through the built-in `sudo.exe` from a normal terminal (it must run inline or with input disabled, `windows.defaults.system.sudo`), directly from an SSH session or SYSTEM. The elevated `stage.cmd` copies the rendered files from the store (over `\\wsl.localhost`) into `%ProgramData%\nix-win`, a directory only Administrators and SYSTEM can write (a link at that path is removed as a link, anything else untrusted is renamed aside), and runs `nix-win.cmd apply` from there in one `cmd.exe /d` process; capabilities, firewall rules and adapters go through one PowerShell script. `check` without elevation runs `nix-win.cmd verify` from a copy in `%TEMP%`.
 - Every applied value, deletion and created key is read back with `reg query`; results go to stdout between `@@ <scope> <n>` markers and `compare.awk` matches them against the lines Nix expects. `switch` and `check` fail on drift, on missing values and when the machine scope was not verified at all.
 - Other users' hives are loaded, written, verified and unloaded; a signed-in user (including a disconnected session) is skipped and reported as not checked.
 

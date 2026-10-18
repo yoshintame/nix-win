@@ -6,7 +6,6 @@
 let
   inherit (lib)
     concatLists
-    concatMap
     concatMapStrings
     concatStringsSep
     filter
@@ -15,7 +14,12 @@ let
     optional
     optionals
     ;
-  inherit (cmd) fail quote psString;
+  inherit (cmd)
+    fail
+    failReturn
+    quote
+    psString
+    ;
 
   winDir = path: concatStringsSep "\\" (lib.init (lib.splitString "\\" path));
   psHashtable =
@@ -25,7 +29,11 @@ let
   files = imap1 (i: target: {
     inherit target;
     id = cmd.pad i;
-    inherit (cfg.files.${target}) text grants onChange;
+    pending = "\"%ProgramData%\\nix-win\\pending\\${
+      builtins.substring 0 16 (builtins.hashString "sha256" (lib.toLower target))
+    }\"";
+    onChange = filter (l: l != "") (lib.splitString "\n" cfg.files.${target}.onChange);
+    inherit (cfg.files.${target}) text grants validate;
   }) (builtins.attrNames cfg.files);
 in
 {
@@ -39,17 +47,15 @@ in
     ++ mapAttrsToList (
       name: r:
       let
-        params = psHashtable (
-          {
-            Direction = psString r.direction;
-            Action = psString r.action;
-            Protocol = psString r.protocol;
-            Enabled = psString (if r.enable then "True" else "False");
-          }
-          // lib.optionalAttrs (r.localPort != null) { LocalPort = psString (toString r.localPort); }
-          // lib.optionalAttrs (r.remoteAddress != [ ]) { RemoteAddress = psArray r.remoteAddress; }
-          // lib.optionalAttrs (r.interfaceAlias != null) { InterfaceAlias = psString r.interfaceAlias; }
-        );
+        params = psHashtable {
+          Direction = psString r.direction;
+          Action = psString r.action;
+          Protocol = psString r.protocol;
+          Enabled = psString (if r.enable then "True" else "False");
+          LocalPort = psString (if r.localPort == null then "Any" else toString r.localPort);
+          RemoteAddress = if r.remoteAddress == [ ] then psString "Any" else psArray r.remoteAddress;
+          InterfaceAlias = psString (if r.interfaceAlias == null then "Any" else r.interfaceAlias);
+        };
       in
       {
         label = "firewall ${name}";
@@ -89,28 +95,41 @@ in
     ) cfg.services
   );
 
-  files = concatMap (
+  files = map (
     f:
     let
+      label = "file_${f.id}";
       src = "\"%~dp0files\\${f.id}\"";
-      changed = "changed_${f.id}";
       dst = quote f.target;
       grants = concatMapStrings (g: " /grant:r ${g}") f.grants;
+      onChange = f.onChange != [ ];
     in
-    [
-      "if not exist ${quote (winDir f.target)} mkdir ${quote (winDir f.target)}"
-      "fc /b ${src} ${dst} >nul 2>&1 || (copy /y ${src} ${dst} >nul && set ${changed}=1 || ${fail f.target})"
-    ]
-    ++
-      optional (f.grants != [ ])
-        "icacls ${dst} /reset >nul && icacls ${dst} /inheritance:r${grants} >nul && icacls ${dst} /setowner *S-1-5-32-544 >nul || ${fail "acl ${f.target}"}"
-    ++ optionals (f.onChange != "") (
-      [ "if not defined ${changed} goto after_${changed}" ]
-      ++ map (line: "${line} || ${fail "on change of ${f.target}"}") (
-        filter (l: l != "") (lib.splitString "\n" f.onChange)
-      )
-      ++ [ ":after_${changed}" ]
-    )
+    {
+      inherit label;
+      body = concatLists [
+        [
+          "if not exist ${quote (winDir f.target)} mkdir ${quote (winDir f.target)}"
+          "fc /b ${src} ${dst} >nul 2>&1 && goto ${label}_installed"
+        ]
+        (optional (f.validate != null) "${f.validate src} || ${failReturn "validate ${f.target}"}")
+        (optionals onChange [
+          "if not exist \"%ProgramData%\\nix-win\\pending\" mkdir \"%ProgramData%\\nix-win\\pending\""
+          "type nul > ${f.pending} || ${failReturn "pending ${f.target}"}"
+        ])
+        [
+          "copy /y ${src} ${dst} >nul || ${failReturn f.target}"
+          ":${label}_installed"
+        ]
+        (optional (f.grants != [ ])
+          "icacls ${dst} /reset >nul && icacls ${dst} /inheritance:r${grants} >nul && icacls ${dst} /setowner *S-1-5-32-544 >nul || ${fail "acl ${f.target}"}"
+        )
+        (optionals onChange (
+          [ "if not exist ${f.pending} exit /b 0" ]
+          ++ map (line: "${line} || ${failReturn "on change of ${f.target}"}") f.onChange
+          ++ [ "del ${f.pending}" ]
+        ))
+      ];
+    }
   ) files;
 
   power =

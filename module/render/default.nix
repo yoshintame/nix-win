@@ -76,7 +76,7 @@ let
   header = [
     "@echo off"
     "chcp 65001 >nul"
-    "setlocal DisableDelayedExpansion"
+    "setlocal EnableExtensions DisableDelayedExpansion"
     "set \"PATH=%SystemRoot%\\System32;%SystemRoot%;%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\""
   ];
   powershellFile = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File";
@@ -86,7 +86,7 @@ let
       "$ErrorActionPreference = 'Stop'"
       "$env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')"
       "$failed = $false"
-      "function Invoke-Step([string]$Label, [scriptblock]$Body) { try { & $Body } catch { Write-Output \"FAILED $Label\"; $script:failed = $true } }"
+      "function Invoke-Step([string]$Label, [scriptblock]$Body) { try { & $Body } catch { Write-Output \"FAILED \${Label}: $($_.Exception.Message -replace '\\s+', ' ')\"; $script:failed = $true } }"
     ]
     ++ map (step: "Invoke-Step ${cmd.psString step.label} {\n${step.body}\n}") commands.powershell
     ++ [
@@ -116,11 +116,12 @@ let
     (cmd.subroutine "apply" (concatLists [
       (lib.optional (commands.powershell != [ ]) "${powershellFile} \"%~dp0nix-win.ps1\" || set failed=1")
       commands.services
-      commands.files
+      (map (file: "call :${file.label}") commands.files)
       (map (operation: operation.apply) machine)
       commands.power
       commands.tasks
     ]))
+    (concatMap (file: cmd.subroutine file.label file.body) commands.files)
     (cmd.subroutine "verify_machine" (verify "machine" machine))
     (concatLists (imap1 userSection users))
     (cmd.subroutine "hkcu_apply" (map (operation: operation.apply) hkcu))

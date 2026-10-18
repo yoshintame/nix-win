@@ -2,11 +2,12 @@ function trim(s) {
   gsub(/^ +| +$/, "", s)
   return s
 }
-FNR == NR {
+FILENAME == ARGV[1] {
   if ($0 ~ /^@@ /) {
     split($0, marker, " ")
     current = marker[2] SUBSEP marker[3]
     seen[marker[2]] = 1
+    markers++
     output[current] = ""
   } else if ($0 ~ /^(FAILED|skip) /) {
     print
@@ -16,6 +17,7 @@ FNR == NR {
   next
 }
 {
+  rows++
   if (!($1 in seen)) {
     skipped[$1] = 1
     next
@@ -42,6 +44,10 @@ FNR == NR {
   } else ok++
 }
 END {
+  if (rows && !markers) {
+    print "nix-win: no results from Windows"
+    exit 1
+  }
   printf "nix-win: %d ok, %d drift, %d missing", ok, drift, missing
   for (s in skipped) printf ", %s not checked", s
   print ""

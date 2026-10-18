@@ -161,10 +161,15 @@ in
               default = [ ];
               description = "`icacls` grants that replace the ACL of the file, with Administrators as owner; empty keeps the inherited ACL.";
             };
+            validate = mkOption {
+              type = types.nullOr (types.functionTo types.str);
+              default = null;
+              description = "Function from the quoted path of the new content to a cmd line that must succeed before the content replaces the file.";
+            };
             onChange = mkOption {
               type = types.lines;
               default = "";
-              description = "cmd lines run after the file changed.";
+              description = "cmd lines run in order after the file changed; until all of them succeed, every switch runs them again.";
             };
           };
         }
