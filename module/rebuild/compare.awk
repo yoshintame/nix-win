@@ -29,37 +29,21 @@ FILENAME == ARGV[1] {
     if (lines[i] ~ /[^ ]/) present = 1
     if (lines[i] ~ /^    /) actual = lines[i]
   }
-}
-$3 == "value" {
-  if (found) ok++
-  else if (present) {
-    drift++
-    print "drift    " $4 ": " trim(actual) ", expected " trim($5)
-  } else {
-    missing++
-    print "missing  " $4
-  }
-}
-$3 == "present" {
-  if (present) ok++
-  else {
-    missing++
-    print "missing  " $4
-  }
-}
-$3 == "absent" {
-  if (present) {
-    drift++
-    print "present  " $4
-  } else ok++
+  if ($3 == "value") outcome = found ? "ok" : present ? "drift" : "missing"
+  else if ($3 == "present") outcome = present ? "ok" : "missing"
+  else outcome = present ? "present" : "ok"
+  count[outcome]++
+  if (outcome == "drift") print "drift    " $4 ": " trim(actual) ", expected " trim($5)
+  else if (outcome != "ok") print outcome "  " $4
 }
 END {
   if (!("machine" in seen)) {
     print "nix-win: no results from Windows"
     exit 1
   }
-  printf "nix-win: %d ok, %d drift, %d missing", ok, drift, missing
+  drift = count["drift"] + count["present"]
+  printf "nix-win: %d ok, %d drift, %d missing", count["ok"], drift, count["missing"]
   for (s in skipped) printf ", %s not checked", s
   print ""
-  exit (drift + missing > 0)
+  exit (drift + count["missing"] > 0)
 }

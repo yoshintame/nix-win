@@ -5,6 +5,8 @@
 }:
 let
   inherit (lib)
+    attrNames
+    attrValues
     concatLists
     concatMap
     concatMapStrings
@@ -61,94 +63,78 @@ let
       ]
     ) operations;
 
+  fill =
+    file: vars:
+    let
+      inline = lib.filterAttrs (_: builtins.isString) vars;
+      fillLine =
+        text:
+        let
+          block = builtins.match "@([A-Za-z]+)@" text;
+          names = map builtins.head (builtins.filter builtins.isList (builtins.split "@([A-Za-z]+)@" text));
+          unknown = builtins.filter (name: !(inline ? ${name})) names;
+        in
+        if block != null then
+          vars.${builtins.head block}
+          or (throw "nix-win: no lines for @${builtins.head block}@ in ${baseNameOf file}")
+        else
+          lib.throwIf (unknown != [ ])
+            "nix-win: no value for @${builtins.head unknown}@ in ${baseNameOf file}"
+            [
+              (lib.replaceStrings (map (name: "@${name}@") (attrNames inline)) (attrValues inline) text)
+            ];
+    in
+    concatMap fillLine (lib.splitString "\n" (lib.removeSuffix "\n" (builtins.readFile file)));
+
+  header = fill ./scripts/header.cmd { };
+
   userSection =
     i: name:
     let
-      label = "user_${toString i}";
       ntuser = "${cfg.users.${name}.profile}\\NTUSER.DAT";
-      skip = reason: "(echo skip ${cmd.escapeEcho "${name}: ${reason}"}& exit /b 0)";
     in
-    cmd.subroutine label [
-      "set \"scope=user-${name}\""
-      "set \"root=HKCU\""
-      "if /i \"%USERNAME%\"==\"${name}\" goto ${label}_body"
-      "if not defined admin ${skip "reading another user's HKCU needs an administrator session"}"
-      "if not exist ${cmd.quote ntuser} ${skip "no profile at ${ntuser}"}"
-      "set \"root=HKU\\nix-win-${name}\""
-      "reg unload \"%root%\" >nul 2>&1"
-      "reg load \"%root%\" ${cmd.quote ntuser} >nul 2>&1 || ${skip "hive in use"}"
-      ":${label}_body"
-      "if \"%mode%\"==\"apply\" call :hkcu_apply"
-      "call :hkcu_verify"
-      "if not \"%root%\"==\"HKCU\" call :unload"
-    ];
+    fill ./scripts/user.cmd {
+      inherit name;
+      label = "user_${toString i}";
+      ntuser = cmd.quote ntuser;
+      ntuserEcho = cmd.escapeEcho ntuser;
+    };
 
-  header = [
-    "@echo off"
-    "chcp 65001 >nul"
-    "setlocal EnableExtensions DisableDelayedExpansion"
-    "set \"PATH=%SystemRoot%\\System32;%SystemRoot%;%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\""
-    "set \"PSModulePath=%ProgramFiles%\\WindowsPowerShell\\Modules;%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\Modules\""
-  ];
-  powershellFile = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File";
+  powershellScript =
+    builtins.readFile ./scripts/prelude.ps1
+    + concatMapStrings (
+      step: "Invoke-Step ${cmd.psString step.label} {\n${step.body}\n}\n"
+    ) commands.powershell
+    + "if ($failed) { exit 1 }\n";
 
-  powershellScript = concatStringsSep "\n" (
-    [
-      "$global:ErrorActionPreference = 'Stop'"
-      "$env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')"
-      "$failed = $false"
-      "function Invoke-Step([string]$Label, [scriptblock]$Body) { try { & $Body } catch { Write-Output \"FAILED \${Label}: $($_.Exception.Message -replace '\\s+', ' ')\"; $script:failed = $true } }"
-    ]
-    ++ map (step: "Invoke-Step ${cmd.psString step.label} {\n${step.body}\n}") commands.powershell
-    ++ [
-      "if ($failed) { exit 1 }"
-      ""
-    ]
-  );
+  stage = fill ./scripts/stage.cmd { inherit header stateDir; };
 
-  stage = header ++ [
-    "${powershellFile} \"%~dp0stage.ps1\" \"${stateDir}\" || (echo FAILED staging into ${stateDir}& exit /b 1)"
-    "call \"${stateDir}\\current\\nix-win.cmd\" %1"
-  ];
-
-  script = concatLists [
-    header
-    [
-      "set \"mode=%~1\""
-      "set failed=0"
-      "set \"admin=\""
-      "whoami /groups | findstr /c:\"S-1-16-12288\" /c:\"S-1-16-16384\" >nul && set \"admin=1\""
-      "if \"%mode%\"==\"apply\" if not defined admin (echo FAILED applying needs an administrator session& exit /b 1)"
-      "if \"%mode%\"==\"apply\" call :apply"
-      "call :verify_machine"
-    ]
-    (imap1 (i: _: "call :user_${toString i}") users)
-    [ "exit /b %failed%" ]
-    (cmd.subroutine "apply" (concatLists [
-      (lib.optional (commands.powershell != [ ]) "${powershellFile} \"%~dp0nix-win.ps1\" || set failed=1")
+  script = fill ./scripts/nix-win.cmd {
+    inherit header;
+    callUsers = imap1 (i: _: "call :user_${toString i}") users;
+    apply = concatLists [
+      (lib.optional (commands.powershell != [ ])
+        "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%~dp0nix-win.ps1\" || set failed=1"
+      )
       commands.services
       (map (file: "call :${file.label}") commands.files)
       (map (operation: operation.apply) machine)
       commands.power
       commands.tasks
-    ]))
-    (concatMap (file: cmd.subroutine file.label file.body) commands.files)
-    (cmd.subroutine "verify_machine" ([ "echo @@ machine 0000" ] ++ verify "machine" machine))
-    (concatLists (imap1 userSection users))
-    (cmd.subroutine "hkcu_apply" (map (operation: operation.apply) hkcu))
-    (cmd.subroutine "hkcu_verify" (verify "%scope%" hkcu))
-    (cmd.subroutine "unload" [
-      "for /l %%i in (1,1,3) do (reg unload \"%root%\" >nul 2>&1 && exit /b 0 & ping -n 2 127.0.0.1 >nul)"
-      "echo FAILED unload %root%& set failed=1"
-    ])
-  ];
+    ];
+    files = concatMap (file: cmd.subroutine file.label file.body) commands.files;
+    verifyMachine = verify "machine" machine;
+    users = concatLists (imap1 userSection users);
+    hkcuApply = map (operation: operation.apply) hkcu;
+    hkcuVerify = verify "%scope%" hkcu;
+  };
 
   bom = builtins.fromJSON ''"\ufeff"'';
 
   outputs = {
     "nix-win.cmd" = cmd.crlf script;
     "stage.cmd" = cmd.crlf stage;
-    "stage.ps1" = bom + builtins.readFile ./stage.ps1;
+    "stage.ps1" = bom + builtins.readFile ./scripts/stage.ps1;
     "expected.tsv" = concatMapStrings (row: row + "\n") (
       expected "machine" "" machine ++ concatMap (name: expected "user-${name}" "${name}: " hkcu) users
     );
