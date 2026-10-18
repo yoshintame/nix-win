@@ -12,9 +12,6 @@
   ]);
 
   cortana = tweak.bool "Cortana in search." (v: [
-    (hklm ''SOFTWARE\Policies\Microsoft\Windows\Windows Search'' {
-      AllowCortana = on v;
-      CortanaConsent = on v;
-    })
+    (hklm ''SOFTWARE\Policies\Microsoft\Windows\Windows Search'' { AllowCortana = on v; })
   ]);
 }

@@ -10,7 +10,7 @@
 {
   sudo =
     tweak.enum
-      "Mode of the built-in sudo.exe; windows-rebuild needs inline to see the output and exit code of apply.cmd."
+      "Mode of the built-in sudo.exe; windows-rebuild switch from a normal terminal needs inline or inputDisabled to read the output and exit code of the elevated run."
       {
         disabled = 0;
         newWindow = 1;
