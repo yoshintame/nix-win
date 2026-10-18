@@ -75,6 +75,9 @@ in
 {
   perSystem =
     { lib, pkgs, ... }:
+    let
+      powershell = import ./powershell pkgs;
+    in
     {
       checks = {
         eval = pkgs.runCommandLocal "nix-win-eval" { } ''
@@ -89,6 +92,7 @@ in
         render = pkgs.runCommandLocal "nix-win-render" { } ''
           bash ${../tests/render.sh} ${render}
           bash ${../tests/compare.sh} ${../module/rebuild/compare.awk} ${render}/expected.tsv
+          ${lib.getExe powershell.analyze} ${../module/render/scripts/stage.ps1} ${../module/render/scripts/prelude.ps1} ${./powershell/format.ps1} ${./powershell/analyze.ps1} ${render}/nix-win.ps1
           touch $out
         '';
       };

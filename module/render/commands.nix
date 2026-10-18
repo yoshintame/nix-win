@@ -60,7 +60,7 @@ in
         body = concatStringsSep "\n" [
           "$n = ${psString name}; $d = ${psString r.displayName}; $p = ${params}"
           "if (Get-NetFirewallRule -Name $n -ErrorAction SilentlyContinue) { Set-NetFirewallRule -Name $n -NewDisplayName $d @p } else { New-NetFirewallRule -Name $n -DisplayName $d @p | Out-Null }"
-          "Get-NetFirewallRule -DisplayName ([WildcardPattern]::Escape($d)) -ErrorAction SilentlyContinue | Where-Object Name -ne $n | Remove-NetFirewallRule"
+          "Get-NetFirewallRule -DisplayName ([WildcardPattern]::Escape($d)) -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $n } | Remove-NetFirewallRule"
         ];
       }
     ) cfg.firewall.rules
@@ -68,7 +68,7 @@ in
       label = "network adapter power management";
       body = concatStringsSep "\n" [
         "$d = ${psHashtable (lib.mapAttrs (_: psString) cfg.networkAdapters.powerManagement)}"
-        "Get-NetAdapter -Physical | Where-Object MediaType -eq '802.3' | Get-NetAdapterPowerManagement | ForEach-Object {"
+        "Get-NetAdapter -Physical | Where-Object { $_.MediaType -eq '802.3' } | Get-NetAdapterPowerManagement | ForEach-Object {"
         "  $a = $_; $p = @{}"
         "  foreach ($k in $d.Keys) { if ($a.$k -ne 'Unsupported' -and $a.$k -ne $d[$k]) { $p[$k] = $d[$k] } }"
         "  if ($p.Count) { Set-NetAdapterPowerManagement -Name $a.Name @p }"

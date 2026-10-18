@@ -27,6 +27,8 @@ _: {
     };
 
     services.Spooler.startType = "demand";
+    capabilities = [ "OpenSSH.Server~~~~0.0.1.0" ];
+    networkAdapters.powerManagement.WakeOnMagicPacket = "Enabled";
     firewall.rules.Example-In-TCP = {
       displayName = "Пример — Example (TCP)";
       localPort = 8080;

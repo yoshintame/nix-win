@@ -103,7 +103,10 @@ let
   powershellScript =
     builtins.readFile ./scripts/prelude.ps1
     + concatMapStrings (
-      step: "Invoke-Step ${cmd.psString step.label} {\n${step.body}\n}\n"
+      step:
+      "Invoke-Step ${cmd.psString step.label} {\n${
+        concatMapStrings (line: "  ${line}\n") (lib.splitString "\n" step.body)
+      }}\n"
     ) commands.powershell
     + "if ($failed) { exit 1 }\n";
 

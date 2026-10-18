@@ -7,7 +7,7 @@ NixOS module that configures the Windows host of a NixOS-WSL distribution: optio
 - `module/options.nix` — the `windows.*` options with narrow types; `module/checks.nix` — name checks (malformed key paths, case clashes, quotes, line breaks, deleted keys with configured subkeys, HKCU without users, shared firewall display names), used both as NixOS assertions and as a guard on the render itself; `module/patterns.nix` — every input regex in one place, for option types and name checks; `module/defaults/` — typed tweak catalog `windows.defaults.<group>.<tweak>`, one file per group.
 - `module/render/` — options → `nix-win.cmd <apply|verify>` and `expected.tsv`: `registry.nix` (operations with apply, query and expected line), `commands.nix` (capabilities, firewall, services, files, power, tasks, adapters), `cmd.nix` (cmd, C runtime and PowerShell quoting, subroutines), `default.nix` (assembly and `fill`); `scripts/` holds the static parts as files — templates `header.cmd`, `nix-win.cmd`, `user.cmd`, `stage.cmd`, where a line that is only `@name@` takes a list of lines and `@name@` inside a line takes an already escaped value, plus `prelude.ps1` and `stage.ps1` (elevated staging).
 - `module/rebuild/` — `windows-rebuild.sh` and `compare.awk`.
-- `tests/` and `parts/checks.nix` — example configuration, render content test, `compare.awk` test, configurations that must fail evaluation.
+- `tests/` and `parts/checks.nix` — example configuration, render content test, `compare.awk` test, configurations that must fail evaluation; `parts/powershell/` — PSScriptAnalyzer pinned from the PowerShell Gallery, run by `pwsh` from nixpkgs for formatting and linting (settings target Windows PowerShell 5.1 syntax, two-space indentation).
 - `dev/` — inputs of the `dev` partition (nixpkgs, treefmt-nix, git-hooks), so consumers of the module only follow `flake-parts`.
 
 ## Invariants
@@ -21,5 +21,5 @@ NixOS module that configures the Windows host of a NixOS-WSL distribution: optio
 
 ## Gates
 
-- `just check` = `nix flake check`: treefmt (nixfmt, deadnix, statix, shfmt), pre-commit, eval of the example and of the rejected configurations on every system; then the x86_64-linux render build, content test and `compare.awk` test, built explicitly because `nix flake check` on macOS builds only checks of the current system.
+- `just check` = `nix flake check`: treefmt (nixfmt, deadnix, statix, shfmt, PowerShell through PSScriptAnalyzer `Invoke-Formatter`), pre-commit, eval of the example and of the rejected configurations on every system; then the x86_64-linux render build, content test, `compare.awk` test and `Invoke-ScriptAnalyzer` over the PowerShell sources and the generated `nix-win.ps1`, built explicitly because `nix flake check` on macOS builds only checks of the current system.
 - `just fmt` = `nix fmt`.

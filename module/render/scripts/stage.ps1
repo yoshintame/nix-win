@@ -18,7 +18,7 @@ foreach ($sid in @('S-1-5-18', 'S-1-5-32-544')) {
 $directory = [System.IO.FileAttributes]::Directory
 $reparsePoint = [System.IO.FileAttributes]::ReparsePoint
 
-function Get-RootAttributes {
+function Get-RootAttribute {
   try {
     [System.IO.File]::GetAttributes($Root)
   } catch [System.IO.FileNotFoundException], [System.IO.DirectoryNotFoundException] {
@@ -27,17 +27,17 @@ function Get-RootAttributes {
 }
 
 function Test-Trusted {
-  $attributes = Get-RootAttributes
+  $attributes = Get-RootAttribute
   if ($null -eq $attributes -or ($attributes -band $reparsePoint) -or -not ($attributes -band $directory)) {
     return $false
   }
   $current = Get-Acl -LiteralPath $Root
   $current.AreAccessRulesProtected -and
-    $current.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -eq $administrators.Value
+  $current.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -eq $administrators.Value
 }
 
-function Remove-Untrusted {
-  $attributes = Get-RootAttributes
+function Clear-Root {
+  $attributes = Get-RootAttribute
   if ($null -eq $attributes) {
     return
   }
@@ -52,7 +52,7 @@ function Remove-Untrusted {
 }
 
 if (-not (Test-Trusted)) {
-  Remove-Untrusted
+  Clear-Root
   [void][System.IO.Directory]::CreateDirectory($Root, $acl)
   if (-not (Test-Trusted)) {
     throw "$Root is not a directory owned by Administrators with a protected ACL"

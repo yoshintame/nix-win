@@ -1,6 +1,9 @@
 _: {
   perSystem =
     { config, pkgs, ... }:
+    let
+      powershell = import ./powershell pkgs;
+    in
     {
       treefmt = {
         projectRootFile = "flake.nix";
@@ -15,6 +18,13 @@ _: {
             enable = true;
             indent_size = 2;
           };
+        };
+        settings.formatter.powershell = {
+          command = powershell.format;
+          includes = [
+            "*.ps1"
+            "*.psd1"
+          ];
         };
       };
 
