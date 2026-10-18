@@ -24,15 +24,12 @@ let
 
   files = imap1 (i: target: {
     inherit target;
-    stored = "files\\${cmd.pad i}";
-    changed = "changed_${cmd.pad i}";
+    id = cmd.pad i;
     inherit (cfg.files.${target}) text grants onChange;
   }) (builtins.attrNames cfg.files);
 in
 {
-  fileOutputs = lib.listToAttrs (
-    map (f: lib.nameValuePair (lib.replaceStrings [ "\\" ] [ "/" ] f.stored) f.text) files
-  );
+  fileOutputs = lib.listToAttrs (map (f: lib.nameValuePair "files/${f.id}" f.text) files);
 
   powershell =
     map (c: {
@@ -95,23 +92,24 @@ in
   files = concatMap (
     f:
     let
-      src = "\"%~dp0${f.stored}\"";
+      src = "\"%~dp0files\\${f.id}\"";
+      changed = "changed_${f.id}";
       dst = quote f.target;
       grants = concatMapStrings (g: " /grant:r ${g}") f.grants;
     in
     [
       "if not exist ${quote (winDir f.target)} mkdir ${quote (winDir f.target)}"
-      "fc /b ${src} ${dst} >nul 2>&1 || (copy /y ${src} ${dst} >nul && set ${f.changed}=1 || ${fail f.target})"
+      "fc /b ${src} ${dst} >nul 2>&1 || (copy /y ${src} ${dst} >nul && set ${changed}=1 || ${fail f.target})"
     ]
     ++
       optional (f.grants != [ ])
         "icacls ${dst} /reset >nul && icacls ${dst} /inheritance:r${grants} >nul && icacls ${dst} /setowner *S-1-5-32-544 >nul || ${fail "acl ${f.target}"}"
     ++ optionals (f.onChange != "") (
-      [ "if not defined ${f.changed} goto after_${f.changed}" ]
+      [ "if not defined ${changed} goto after_${changed}" ]
       ++ map (line: "${line} || ${fail "on change of ${f.target}"}") (
         filter (l: l != "") (lib.splitString "\n" f.onChange)
       )
-      ++ [ ":after_${f.changed}" ]
+      ++ [ ":after_${changed}" ]
     )
   ) files;
 

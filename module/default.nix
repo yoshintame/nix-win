@@ -7,7 +7,6 @@
 let
   cfg = config.windows;
   checks = import ./checks.nix { inherit lib cfg; };
-  failed = map (check: check.message) (lib.filter (check: !check.assertion) checks);
 in
 {
   imports = [
@@ -17,7 +16,7 @@ in
 
   config = lib.mkIf cfg.enable {
     assertions = checks;
-    windows.build.toplevel = lib.throwIf (failed != [ ]) (lib.concatStringsSep "\n" failed) (
+    windows.build.toplevel = lib.asserts.checkAssertWarn checks [ ] (
       import ./render { inherit lib pkgs cfg; }
     );
     windows.build.rebuild = import ./rebuild {

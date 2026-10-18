@@ -39,4 +39,5 @@ rec {
   escapeEcho = s: percent (caret s);
   pad = i: lib.fixedWidthString 4 "0" (toString i);
   fail = label: "(echo FAILED ${escapeEcho label}& set failed=1)";
+  subroutine = label: body: [ ":${label}" ] ++ body ++ [ "exit /b 0" ];
 }

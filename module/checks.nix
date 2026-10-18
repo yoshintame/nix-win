@@ -8,6 +8,7 @@ let
     optionals
     toLower
     ;
+  patterns = import ./patterns.nix;
 
   matches = regex: name: builtins.match regex name != null;
 
@@ -18,7 +19,7 @@ let
       message = "nix-win: ${what} '${name}' must match ${regex}";
     }) names;
 
-  plain = what: each what "[^\r\n\t\"]+";
+  plain = what: each what patterns.plain;
 
   caseUnique =
     what: names:
@@ -55,10 +56,10 @@ registry "HKLM" cfg.registry.HKLM
     message = "nix-win: windows.registry.HKCU is set but windows.users is empty, so nothing applies it";
   }
 ]
-++ each "user name" "[A-Za-z0-9._-]+" (attrNames cfg.users)
-++ each "firewall rule name" "[A-Za-z0-9._-]+" (attrNames cfg.firewall.rules)
-++ each "service name" "[A-Za-z0-9._-]+" (attrNames cfg.services)
-++ each "power setting" "[a-z-]+" (attrNames cfg.power.timeouts)
-++ each "network adapter property" "[A-Za-z]+" (attrNames cfg.networkAdapters.powerManagement)
+++ each "user name" patterns.name (attrNames cfg.users)
+++ each "firewall rule name" patterns.name (attrNames cfg.firewall.rules)
+++ each "service name" patterns.name (attrNames cfg.services)
+++ each "power setting" patterns.powerSetting (attrNames cfg.power.timeouts)
+++ each "network adapter property" patterns.word (attrNames cfg.networkAdapters.powerManagement)
 ++ plain "scheduled task" (attrNames cfg.scheduledTasks)
 ++ plain "file path" (attrNames cfg.files)

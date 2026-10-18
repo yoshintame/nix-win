@@ -58,8 +58,7 @@ let
       ntuser = "${cfg.users.${name}.profile}\\NTUSER.DAT";
       skip = reason: "(echo skip ${cmd.escapeEcho "${name}: ${reason}"}& exit /b 0)";
     in
-    [
-      ":${label}"
+    cmd.subroutine label [
       "set \"scope=user-${name}\""
       "set \"root=HKCU\""
       "if /i \"%USERNAME%\"==\"${name}\" goto ${label}_body"
@@ -72,7 +71,6 @@ let
       "if \"%mode%\"==\"apply\" call :hkcu_apply"
       "call :hkcu_verify"
       "if not \"%root%\"==\"HKCU\" call :unload"
-      "exit /b 0"
     ];
 
   header = [
@@ -114,60 +112,42 @@ let
       "call :verify_machine"
     ]
     (imap1 (i: _: "call :user_${toString i}") users)
-    [
-      "exit /b %failed%"
-      ":apply"
-    ]
-    (lib.optional (commands.powershell != [ ]) "${powershellFile} \"%~dp0nix-win.ps1\" || set failed=1")
-    commands.services
-    commands.files
-    (map (operation: operation.apply) machine)
-    commands.power
-    commands.tasks
-    [
-      "exit /b 0"
-      ":verify_machine"
-    ]
-    (verify "machine" machine)
-    [ "exit /b 0" ]
+    [ "exit /b %failed%" ]
+    (cmd.subroutine "apply" (concatLists [
+      (lib.optional (commands.powershell != [ ]) "${powershellFile} \"%~dp0nix-win.ps1\" || set failed=1")
+      commands.services
+      commands.files
+      (map (operation: operation.apply) machine)
+      commands.power
+      commands.tasks
+    ]))
+    (cmd.subroutine "verify_machine" (verify "machine" machine))
     (concatLists (imap1 userSection users))
-    [ ":hkcu_apply" ]
-    (map (operation: operation.apply) hkcu)
-    [
-      "exit /b 0"
-      ":hkcu_verify"
-    ]
-    (verify "%scope%" hkcu)
-    [
-      "exit /b 0"
-      ":unload"
+    (cmd.subroutine "hkcu_apply" (map (operation: operation.apply) hkcu))
+    (cmd.subroutine "hkcu_verify" (verify "%scope%" hkcu))
+    (cmd.subroutine "unload" [
       "for /l %%i in (1,1,3) do (reg unload \"%root%\" >nul 2>&1 && exit /b 0 & ping -n 2 127.0.0.1 >nul)"
-      "echo FAILED unload %root%& set failed=1& exit /b 0"
-    ]
+      "echo FAILED unload %root%& set failed=1"
+    ])
   ];
+
+  bom = builtins.fromJSON ''"\ufeff"'';
 
   outputs = {
     "nix-win.cmd" = cmd.crlf script;
     "stage.cmd" = cmd.crlf stage;
-    "stage.ps1" = builtins.readFile ./stage.ps1;
+    "stage.ps1" = bom + builtins.readFile ./stage.ps1;
     "expected.tsv" = lib.concatMapStrings (row: row + "\n") (
       expected "machine" "" machine ++ concatMap (name: expected "user-${name}" "${name}: " hkcu) users
     );
   }
-  // lib.optionalAttrs (commands.powershell != [ ]) { "nix-win.ps1" = powershellScript; }
+  // lib.optionalAttrs (commands.powershell != [ ]) { "nix-win.ps1" = bom + powershellScript; }
   // commands.fileOutputs;
 in
 pkgs.runCommand "nix-win" { } (
   lib.concatStrings (
     mapAttrsToList (
-      path: text:
-      let
-        file = pkgs.writeText (baseNameOf path) text;
-      in
-      if lib.hasSuffix ".ps1" path then
-        "mkdir -p $out; { printf '\\xef\\xbb\\xbf'; cat ${file}; } > $out/${path}\n"
-      else
-        "install -D -m 644 ${file} $out/${path}\n"
+      path: text: "install -D -m 644 ${pkgs.writeText (baseNameOf path) text} $out/${path}\n"
     ) outputs
   )
 )

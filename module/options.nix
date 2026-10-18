@@ -1,20 +1,16 @@
 { lib, ... }:
 let
   inherit (lib) mkOption types;
+  patterns = import ./patterns.nix;
 
-  matching = regex: types.strMatching regex;
-  line = matching "[^\r\n\t]*";
-  safe = matching "[^\r\n\t\"]+";
-  word = matching "[A-Za-z0-9._~-]+";
-
-  option =
-    type: default:
+  value = types.nullOr (types.either types.ints.u32 (types.strMatching patterns.line));
+  keys =
+    root:
     mkOption {
-      inherit type default;
+      type = types.attrsOf (types.nullOr (types.attrsOf value));
+      default = { };
+      description = "Keys under ${root} by path. A value that is an integer is written as REG_DWORD, a string as REG_SZ, `null` deletes it; `{ }` creates an empty key, `null` instead of the values deletes the key with everything under it.";
     };
-
-  value = types.nullOr (types.either types.ints.u32 line);
-  keys = option (types.attrsOf (types.nullOr (types.attrsOf value))) { };
 in
 {
   options.windows = {
@@ -22,110 +18,203 @@ in
 
     flake = mkOption {
       type = types.str;
+      description = "Flake reference `<flake>#<host>` that `windows-rebuild` builds when `--flake` is not given.";
     };
 
     registry = {
-      HKLM = keys;
-      HKCU = keys;
+      HKLM = keys "HKLM";
+      HKCU = keys "the HKCU of every user in `windows.users`";
     };
 
-    users = option (types.attrsOf (
-      types.submodule (
-        { name, ... }:
-        {
-          options.profile = option safe ''C:\Users\${name}'';
-        }
-      )
-    )) { };
+    users = mkOption {
+      type = types.attrsOf (
+        types.submodule (
+          { name, ... }:
+          {
+            options.profile = mkOption {
+              type = types.strMatching patterns.plain;
+              default = ''C:\Users\${name}'';
+              description = "Profile directory with the user's `NTUSER.DAT`.";
+            };
+          }
+        )
+      );
+      default = { };
+      description = "Users whose HKCU receives `windows.registry.HKCU`: the caller's directly, others through `reg load` while they are signed out.";
+    };
 
-    services = option (types.attrsOf (
-      types.submodule {
-        options = {
-          startType = option (types.nullOr (
-            types.enum [
-              "auto"
-              "delayed-auto"
-              "demand"
-              "disabled"
-            ]
-          )) null;
-          state = option (types.nullOr (
-            types.enum [
-              "running"
-              "stopped"
-            ]
-          )) null;
-        };
-      }
-    )) { };
-
-    firewall.rules = option (types.attrsOf (
-      types.submodule (
-        { name, ... }:
-        {
+    services = mkOption {
+      type = types.attrsOf (
+        types.submodule {
           options = {
-            displayName = option (matching "[^\r\n\t\"'‘’‚‛]+") name;
-            enable = option types.bool true;
-            direction = option (types.enum [
-              "Inbound"
-              "Outbound"
-            ]) "Inbound";
-            action = option (types.enum [
-              "Allow"
-              "Block"
-            ]) "Allow";
-            protocol = option (types.enum [
-              "TCP"
-              "UDP"
-              "ICMPv4"
-              "ICMPv6"
-              "Any"
-            ]) "TCP";
-            localPort = option (types.nullOr (types.either types.port (matching "[0-9,-]+"))) null;
-            remoteAddress = option (types.listOf (matching "[0-9A-Fa-f:./-]+")) [ ];
-            interfaceAlias = option (types.nullOr (matching "[A-Za-z0-9 ._()-]+")) null;
+            startType = mkOption {
+              type = types.nullOr (
+                types.enum [
+                  "auto"
+                  "delayed-auto"
+                  "demand"
+                  "disabled"
+                ]
+              );
+              default = null;
+              description = "Start type set with `sc config`; `null` leaves it as is.";
+            };
+            state = mkOption {
+              type = types.nullOr (
+                types.enum [
+                  "running"
+                  "stopped"
+                ]
+              );
+              default = null;
+              description = "State ensured with `net start` / `net stop`; `null` leaves it as is.";
+            };
           };
         }
-      )
-    )) { };
+      );
+      default = { };
+      description = "Services by name.";
+    };
 
-    capabilities = option (types.listOf word) [ ];
+    firewall.rules = mkOption {
+      type = types.attrsOf (
+        types.submodule (
+          { name, ... }:
+          {
+            options = {
+              displayName = mkOption {
+                type = types.strMatching patterns.displayName;
+                default = name;
+                description = "Display name; other rules with this display name are removed.";
+              };
+              enable = mkOption {
+                type = types.bool;
+                default = true;
+                description = "Whether the rule is enabled.";
+              };
+              direction = mkOption {
+                type = types.enum [
+                  "Inbound"
+                  "Outbound"
+                ];
+                default = "Inbound";
+                description = "Traffic direction.";
+              };
+              action = mkOption {
+                type = types.enum [
+                  "Allow"
+                  "Block"
+                ];
+                default = "Allow";
+                description = "Action for matching traffic.";
+              };
+              protocol = mkOption {
+                type = types.enum [
+                  "TCP"
+                  "UDP"
+                  "ICMPv4"
+                  "ICMPv6"
+                  "Any"
+                ];
+                default = "TCP";
+                description = "IP protocol.";
+              };
+              localPort = mkOption {
+                type = types.nullOr (types.either types.port (types.strMatching patterns.port));
+                default = null;
+                description = "Local port, list or range of ports for TCP and UDP; `null` matches any port.";
+              };
+              remoteAddress = mkOption {
+                type = types.listOf (types.strMatching patterns.address);
+                default = [ ];
+                description = "Remote addresses, subnets or ranges; empty matches any address.";
+              };
+              interfaceAlias = mkOption {
+                type = types.nullOr (types.strMatching patterns.interfaceAlias);
+                default = null;
+                description = "Alias of the only interface the rule applies to; `null` applies it to every interface.";
+              };
+            };
+          }
+        )
+      );
+      default = { };
+      description = "Firewall rules by their stable `Name`, created with `New-NetFirewallRule` or updated with `Set-NetFirewallRule`.";
+    };
 
-    files = option (types.attrsOf (
-      types.submodule {
-        options = {
-          text = mkOption {
-            type = types.lines;
+    capabilities = mkOption {
+      type = types.listOf (types.strMatching patterns.capability);
+      default = [ ];
+      description = "Windows capabilities to install, such as `OpenSSH.Server~~~~0.0.1.0`.";
+    };
+
+    files = mkOption {
+      type = types.attrsOf (
+        types.submodule {
+          options = {
+            text = mkOption {
+              type = types.lines;
+              description = "Content of the file.";
+            };
+            grants = mkOption {
+              type = types.listOf (types.strMatching patterns.grant);
+              default = [ ];
+              description = "`icacls` grants that replace the ACL of the file, with Administrators as owner; empty keeps the inherited ACL.";
+            };
+            onChange = mkOption {
+              type = types.lines;
+              default = "";
+              description = "cmd lines run after the file changed.";
+            };
           };
-          grants = option (types.listOf (matching "\\*?[A-Za-z0-9-]+:\\(?[A-Z,]+\\)?")) [ ];
-          onChange = option types.lines "";
-        };
-      }
-    )) { };
+        }
+      );
+      default = { };
+      description = "Files by absolute path, copied when their content differs.";
+    };
 
     power = {
-      timeouts = option (types.attrsOf types.ints.unsigned) { };
-      hibernate = option (types.nullOr types.bool) null;
+      timeouts = mkOption {
+        type = types.attrsOf types.ints.unsigned;
+        default = { };
+        description = "`powercfg /change` settings in minutes, such as `standby-timeout-ac`.";
+      };
+      hibernate = mkOption {
+        type = types.nullOr types.bool;
+        default = null;
+        description = "Whether hibernation is available; `null` leaves it as is.";
+      };
     };
 
-    scheduledTasks = option (types.attrsOf (
-      types.submodule {
-        options.enable = mkOption {
-          type = types.bool;
-        };
-      }
-    )) { };
+    scheduledTasks = mkOption {
+      type = types.attrsOf (
+        types.submodule {
+          options.enable = mkOption {
+            type = types.bool;
+            description = "Whether the task is enabled.";
+          };
+        }
+      );
+      default = { };
+      description = "Scheduled tasks by full path; a task that does not exist is skipped.";
+    };
 
-    networkAdapters.powerManagement = option (types.attrsOf (matching "[A-Za-z]+")) { };
+    networkAdapters.powerManagement = mkOption {
+      type = types.attrsOf (types.strMatching patterns.word);
+      default = { };
+      description = "`Set-NetAdapterPowerManagement` properties of physical Ethernet adapters, such as `WakeOnMagicPacket = \"Enabled\"`; set only where supported and different.";
+    };
 
     build.toplevel = mkOption {
       type = types.package;
       readOnly = true;
+      description = "Rendered scripts and files that `windows-rebuild` stages and runs.";
     };
 
     build.rebuild = mkOption {
       type = types.package;
       readOnly = true;
+      description = "The `windows-rebuild` command.";
     };
   };
 }

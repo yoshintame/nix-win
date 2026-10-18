@@ -20,34 +20,41 @@ concatLists (
     let
       key = "\"${root}\\${cmd.percent path}\"";
       operation =
-        name: kind: apply: line:
+        name: value:
         let
-          value = optionalString (name != null) " /v ${cmd.arg name}";
+          target = "${key}${optionalString (name != null) " /v ${cmd.arg name}"}";
           fullLabel = "${label}\\${path}${optionalString (name != null) "\\${name}"}";
+          query = "reg query ${target}";
+          add = data: "reg add ${target}${data} /f >nul 2>&1 || ${cmd.fail fullLabel}";
         in
         {
-          inherit kind line;
           label = fullLabel;
-          query = "reg query ${key}${value}";
-          apply =
-            if apply == "delete" then
-              "reg query ${key}${value} >nul 2>&1 && (reg delete ${key}${value} /f >nul 2>&1 || ${cmd.fail fullLabel})"
-            else
-              "reg add ${key}${value}${apply} /f >nul 2>&1 || ${cmd.fail fullLabel}";
-        };
+          inherit query;
+        }
+        // (
+          if value == null then
+            {
+              kind = "absent";
+              line = "";
+              apply = "${query} >nul 2>&1 && (reg delete ${target} /f >nul 2>&1 || ${cmd.fail fullLabel})";
+            }
+          else if value == { } then
+            {
+              kind = "present";
+              line = "";
+              apply = add "";
+            }
+          else
+            {
+              kind = "value";
+              line = "    ${name}    ${regType value}    ${shown value}";
+              apply = add " /t ${regType value} /d ${regData value}";
+            }
+        );
     in
-    if values == null then
-      [ (operation null "absent" "delete" "") ]
-    else if values == { } then
-      [ (operation null "present" "" "") ]
+    if values == null || values == { } then
+      [ (operation null values) ]
     else
-      mapAttrsToList (
-        name: v:
-        if v == null then
-          operation name "absent" "delete" ""
-        else
-          operation name "value" " /t ${regType v} /d ${regData v}"
-            "    ${name}    ${regType v}    ${shown v}"
-      ) values
+      mapAttrsToList operation values
   ) keys
 )
