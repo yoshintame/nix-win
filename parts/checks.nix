@@ -1,36 +1,75 @@
 { inputs, self, ... }:
 let
-  build =
+  inherit (inputs.nixpkgs) lib;
+  system =
     extra:
-    (inputs.nixpkgs.lib.nixosSystem {
+    lib.nixosSystem {
       system = "x86_64-linux";
       modules = [
         self.nixosModules.default
         ../tests/example.nix
         extra
       ];
-    }).config.windows.build.toplevel;
-  render = build { };
+    };
+  render = (system { }).config.windows.build.toplevel;
 
   rejected = {
-    case-clash.windows.registry.HKLM."software\\nixwin\\example".Other = 1;
-    hkcu-without-users = {
-      windows.users = inputs.nixpkgs.lib.mkForce { };
+    case-clash = {
+      config.windows.registry.HKLM."software\\nixwin\\example".Other = 1;
+      message = "HKLM key paths differ only in case";
     };
-    user-classes.windows.registry.HKCU."Software\\Classes\\CLSID".X = 1;
-    line-break.windows.registry.HKLM."SOFTWARE\\NixWin\\Example"."a\nb" = 1;
-    trailing-backslash.windows.registry.HKLM."SOFTWARE\\NixWin\\".X = 1;
-    double-backslash.windows.registry.HKLM."SOFTWARE\\\\NixWin".X = 1;
-    deleted-parent.windows.registry.HKLM."SOFTWARE\\NixWin\\removed\\Child".X = 1;
-    firewall-display-name.windows.firewall.rules.Other-In-TCP.displayName = "example (tcp)";
-    firewall-name-case.windows.firewall.rules.example-in-tcp = { };
-    firewall-port-protocol.windows.firewall.rules.Ping-In = {
-      protocol = "ICMPv4";
-      localPort = 8;
+    hkcu-without-users = {
+      config.windows.users = lib.mkForce { };
+      message = "windows.users is empty";
+    };
+    user-classes = {
+      config.windows.registry.HKCU."Software\\Classes\\CLSID".X = 1;
+      message = "lives in UsrClass.dat";
+    };
+    line-break = {
+      config.windows.registry.HKLM."SOFTWARE\\NixWin\\Example"."a\nb" = 1;
+      message = "value name in HKLM\\SOFTWARE\\NixWin\\Example";
+    };
+    trailing-backslash = {
+      config.windows.registry.HKLM."SOFTWARE\\NixWin\\".X = 1;
+      message = "HKLM key path 'SOFTWARE\\NixWin\\' must match";
+    };
+    double-backslash = {
+      config.windows.registry.HKLM."SOFTWARE\\\\NixWin".X = 1;
+      message = "HKLM key path 'SOFTWARE\\\\NixWin' must match";
+    };
+    deleted-parent = {
+      config.windows.registry.HKLM."SOFTWARE\\NixWin\\removed\\Child".X = 1;
+      message = "is deleted, but keys under it are set";
+    };
+    firewall-display-name = {
+      config.windows.firewall.rules.Other-In-TCP.displayName = "Пример — EXAMPLE (tcp)";
+      message = "firewall rules share a display name";
+    };
+    firewall-name-case = {
+      config.windows.firewall.rules.example-in-tcp = { };
+      message = "firewall rule names differ only in case";
+    };
+    firewall-port-protocol = {
+      config.windows.firewall.rules.Ping-In = {
+        protocol = "ICMPv4";
+        localPort = 8;
+      };
+      message = "needs protocol TCP or UDP";
+    };
+    user-case = {
+      config.windows.users.ALICE = { };
+      message = "user names differ only in case";
+    };
+    file-path-case = {
+      config.windows.files."C:\\PROGRAMDATA\\NixWin\\example.conf".text = "";
+      message = "file paths differ only in case";
     };
   };
-  accepted = inputs.nixpkgs.lib.filterAttrs (
-    _: config: (builtins.tryEval (builtins.seq (build config).drvPath true)).success
+  failures =
+    config: map (a: a.message) (lib.filter (a: !a.assertion) (system config).config.assertions);
+  missed = lib.filterAttrs (
+    _: case: !lib.any (lib.hasInfix case.message) (failures case.config)
   ) rejected;
 in
 {
@@ -42,8 +81,8 @@ in
           printf '%s\n' ${lib.escapeShellArg (builtins.unsafeDiscardStringContext render.drvPath)} > $out
         '';
         rejects-invalid =
-          lib.throwIf (accepted != { })
-            "nix-win: configurations expected to fail evaluation passed: ${lib.concatStringsSep ", " (builtins.attrNames accepted)}"
+          lib.throwIf (missed != { })
+            "nix-win: configurations not rejected for the expected reason: ${lib.concatStringsSep ", " (builtins.attrNames missed)}"
             (pkgs.runCommandLocal "nix-win-rejects-invalid" { } "touch $out");
       }
       // lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {

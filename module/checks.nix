@@ -35,9 +35,11 @@ let
         path: values:
         if values == null then
           let
-            inside = filter (other: keys.${other} != null && hasPrefix "${toLower path}\\" (toLower other)) (
-              attrNames keys
-            );
+            writes = values: values == { } || lib.any (v: v != null) (lib.attrValues values);
+            inside = filter (
+              other:
+              keys.${other} != null && writes keys.${other} && hasPrefix "${toLower path}\\" (toLower other)
+            ) (attrNames keys);
           in
           [
             {
@@ -86,9 +88,13 @@ registry "HKLM" cfg.registry.HKLM
   }
 ]
 ++ each "user name" patterns.name (attrNames cfg.users)
+++ unique "user names differ only in case" lib.id (attrNames cfg.users)
 ++ firewall
 ++ each "service name" patterns.name (attrNames cfg.services)
+++ unique "service names differ only in case" lib.id (attrNames cfg.services)
 ++ each "power setting" patterns.powerSetting (attrNames cfg.power.timeouts)
 ++ each "network adapter property" patterns.word (attrNames cfg.networkAdapters.powerManagement)
 ++ each "scheduled task" patterns.plain (attrNames cfg.scheduledTasks)
+++ unique "scheduled tasks differ only in case" lib.id (attrNames cfg.scheduledTasks)
 ++ each "file path" patterns.plain (attrNames cfg.files)
+++ unique "file paths differ only in case" lib.id (attrNames cfg.files)

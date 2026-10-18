@@ -2,6 +2,7 @@
   lib,
   cmd,
   cfg,
+  stateDir,
 }:
 let
   inherit (lib)
@@ -28,7 +29,7 @@ let
   entries = imap1 (i: target: {
     inherit target;
     id = cmd.pad i;
-    pending = "\"%ProgramData%\\nix-win\\pending\\${
+    pending = "\"${stateDir}\\pending\\${
       builtins.substring 0 16 (builtins.hashString "sha256" (lib.toLower target))
     }\"";
     onChange = filter (l: l != "") (lib.splitString "\n" cfg.files.${target}.onChange);
@@ -110,10 +111,7 @@ in
           "fc /b ${src} ${dst} >nul 2>&1 && goto ${label}_installed"
         ]
         (optional (f.validate != null) "${f.validate src} || ${failReturn "validate ${f.target}"}")
-        (optionals hasOnChange [
-          "if not exist \"%ProgramData%\\nix-win\\pending\" mkdir \"%ProgramData%\\nix-win\\pending\""
-          "type nul > ${f.pending} || ${failReturn "pending ${f.target}"}"
-        ])
+        (optional hasOnChange "type nul > ${f.pending} || ${failReturn "pending ${f.target}"}")
         [
           "copy /y ${src} ${dst} >nul || ${failReturn f.target}"
           ":${label}_installed"

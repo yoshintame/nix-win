@@ -14,9 +14,17 @@ let
     mergeAttrsList
     ;
 
+  stateDir = "%ProgramFiles%\\nix-win";
   cmd = import ./cmd.nix { inherit lib; };
   registry = import ./registry.nix { inherit lib cmd; };
-  commands = import ./commands.nix { inherit lib cmd cfg; };
+  commands = import ./commands.nix {
+    inherit
+      lib
+      cmd
+      cfg
+      stateDir
+      ;
+  };
 
   numbered = imap1 (i: operation: operation // { index = cmd.pad i; });
   machine = numbered (
@@ -80,12 +88,13 @@ let
     "chcp 65001 >nul"
     "setlocal EnableExtensions DisableDelayedExpansion"
     "set \"PATH=%SystemRoot%\\System32;%SystemRoot%;%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\""
+    "set \"PSModulePath=%ProgramFiles%\\WindowsPowerShell\\Modules;%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\Modules\""
   ];
   powershellFile = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File";
 
   powershellScript = concatStringsSep "\n" (
     [
-      "$ErrorActionPreference = 'Stop'"
+      "$global:ErrorActionPreference = 'Stop'"
       "$env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')"
       "$failed = $false"
       "function Invoke-Step([string]$Label, [scriptblock]$Body) { try { & $Body } catch { Write-Output \"FAILED \${Label}: $($_.Exception.Message -replace '\\s+', ' ')\"; $script:failed = $true } }"
@@ -98,8 +107,8 @@ let
   );
 
   stage = header ++ [
-    "${powershellFile} \"%~dp0stage.ps1\" || (echo FAILED staging into %ProgramData%\\nix-win& exit /b 1)"
-    "call \"%ProgramData%\\nix-win\\current\\nix-win.cmd\" %1"
+    "${powershellFile} \"%~dp0stage.ps1\" \"${stateDir}\" || (echo FAILED staging into ${stateDir}& exit /b 1)"
+    "call \"${stateDir}\\current\\nix-win.cmd\" %1"
   ];
 
   script = concatLists [
@@ -124,7 +133,7 @@ let
       commands.tasks
     ]))
     (concatMap (file: cmd.subroutine file.label file.body) commands.files)
-    (cmd.subroutine "verify_machine" (verify "machine" machine))
+    (cmd.subroutine "verify_machine" ([ "echo @@ machine 0000" ] ++ verify "machine" machine))
     (concatLists (imap1 userSection users))
     (cmd.subroutine "hkcu_apply" (map (operation: operation.apply) hkcu))
     (cmd.subroutine "hkcu_verify" (verify "%scope%" hkcu))

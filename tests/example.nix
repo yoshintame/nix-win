@@ -22,12 +22,13 @@ _: {
         Gone = null;
       };
       HKLM."SOFTWARE\\NixWin\\Removed" = null;
+      HKLM."SOFTWARE\\NixWin\\Removed\\Child".Value = null;
       HKCU."Software\\NixWin\\Empty" = { };
     };
 
     services.Spooler.startType = "demand";
     firewall.rules.Example-In-TCP = {
-      displayName = "Example (TCP)";
+      displayName = "Пример — Example (TCP)";
       localPort = 8080;
       remoteAddress = [ "100.64.0.0/10" ];
     };

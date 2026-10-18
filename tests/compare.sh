@@ -17,7 +17,7 @@ report() {
     $3 == "absent" && mode == "present" && !added++ { print "    Leftover    REG_SZ    x" }
   ' "$expected"
 }
-run() { awk -F '\t' -f "$compare" "$dir/$1" "$expected" >"$dir/$1.out"; }
+run() { awk -F '\t' -f "$compare" "$dir/$1" "${against:-$expected}" >"$dir/$1.out"; }
 pass() {
   run "$1" || fail "$1: exit $?: $(cat "$dir/$1.out")"
   grep -qx -- "$2" "$dir/$1.out" || fail "$1 lacks: $2"
@@ -43,4 +43,8 @@ report present >"$dir/present"
 reject present '^present  '
 
 awk '/^@@ / { keep = $2 != "machine" } keep' "$dir/ok" >"$dir/users"
-reject users ', machine not checked$'
+reject users '^nix-win: no results from Windows$'
+
+grep -v '^machine' "$expected" >"$dir/hkcu.tsv"
+printf '%s\n' '@@ machine 0000' 'skip alice: hive in use' >"$dir/skipped"
+against=$dir/hkcu.tsv pass skipped 'nix-win: 0 ok, 0 drift, 0 missing, user-alice not checked'

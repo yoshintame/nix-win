@@ -7,7 +7,6 @@ FILENAME == ARGV[1] {
     split($0, marker, " ")
     current = marker[2] SUBSEP marker[3]
     seen[marker[2]] = 1
-    markers++
     output[current] = ""
   } else if ($0 ~ /^(FAILED|skip) /) {
     print
@@ -16,12 +15,11 @@ FILENAME == ARGV[1] {
   }
   next
 }
+!($1 in seen) {
+  skipped[$1] = 1
+  next
+}
 {
-  rows++
-  if (!($1 in seen)) {
-    skipped[$1] = 1
-    next
-  }
   found = 0
   present = 0
   actual = ""
@@ -31,25 +29,37 @@ FILENAME == ARGV[1] {
     if (lines[i] ~ /[^ ]/) present = 1
     if (lines[i] ~ /^    /) actual = lines[i]
   }
-  if ($3 == "value" && found) ok++
-  else if ($3 == "value" && present) {
+}
+$3 == "value" {
+  if (found) ok++
+  else if (present) {
     drift++
     print "drift    " $4 ": " trim(actual) ", expected " trim($5)
-  } else if ($3 == "value" || ($3 == "present" && !present)) {
+  } else {
     missing++
     print "missing  " $4
-  } else if ($3 == "absent" && present) {
+  }
+}
+$3 == "present" {
+  if (present) ok++
+  else {
+    missing++
+    print "missing  " $4
+  }
+}
+$3 == "absent" {
+  if (present) {
     drift++
     print "present  " $4
   } else ok++
 }
 END {
-  if (rows && !markers) {
+  if (!("machine" in seen)) {
     print "nix-win: no results from Windows"
     exit 1
   }
   printf "nix-win: %d ok, %d drift, %d missing", ok, drift, missing
   for (s in skipped) printf ", %s not checked", s
   print ""
-  exit (drift + missing > 0 || ("machine" in skipped))
+  exit (drift + missing > 0)
 }
