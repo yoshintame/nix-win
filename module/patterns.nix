@@ -11,4 +11,6 @@
   grant = "\\*?[A-Za-z0-9-]+:\\(?[A-Z,]+\\)?";
   powerSetting = "[a-z-]+";
   word = "[A-Za-z]+";
+  packageId = "[A-Za-z0-9][A-Za-z0-9._+-]*";
+  location = "[^\r\n\t\"]*[^\\\\\r\n\t\"]";
 }

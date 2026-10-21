@@ -45,6 +45,10 @@ reject present '^present  '
 awk '/^@@ / { keep = $2 != "machine" } keep' "$dir/ok" >"$dir/users"
 reject users '^nix-win: no results from Windows$'
 
-grep -v '^machine' "$expected" >"$dir/hkcu.tsv"
+grep '^user-' "$expected" >"$dir/hkcu.tsv"
 printf '%s\n' '@@ machine 0000' 'skip alice: hive in use' >"$dir/skipped"
 against=$dir/hkcu.tsv pass skipped 'nix-win: 0 ok, 0 drift, 0 missing, user-alice not checked'
+
+packages=$(grep -c '^winget' "$expected")
+awk '/^@@ / { keep = $2 != "winget" } keep' "$dir/ok" >"$dir/without-winget"
+pass without-winget "nix-win: $((rows - packages)) ok, 0 drift, 0 missing, winget not checked"

@@ -61,6 +61,14 @@ let
       config.windows.users.ALICE = { };
       message = "user names differ only in case";
     };
+    winget-package-id = {
+      config.windows.winget.packages."-bad" = { };
+      message = "winget package ID '-bad' must match";
+    };
+    winget-package-id-case = {
+      config.windows.winget.packages."tailscale.tailscale" = { };
+      message = "winget package IDs differ only in case";
+    };
     file-path-case = {
       config.windows.files."C:\\PROGRAMDATA\\NixWin\\example.conf".text = "";
       message = "file paths differ only in case";
@@ -92,7 +100,7 @@ in
         render = pkgs.runCommandLocal "nix-win-render" { } ''
           bash ${../tests/render.sh} ${render}
           bash ${../tests/compare.sh} ${../module/rebuild/compare.awk} ${render}/expected.tsv
-          ${lib.getExe powershell.analyze} ${../module/render/scripts/stage.ps1} ${../module/render/scripts/prelude.ps1} ${./powershell/format.ps1} ${./powershell/analyze.ps1} ${render}/nix-win.ps1
+          ${lib.getExe powershell.analyze} ${../module/render/scripts/stage.ps1} ${../module/render/scripts/prelude.ps1} ${../module/render/scripts/winget.ps1} ${./powershell/format.ps1} ${./powershell/analyze.ps1} ${render}/nix-win.ps1
           touch $out
         '';
       };

@@ -1,8 +1,9 @@
-{ lib, ... }:
+{ config, lib, ... }:
 let
   inherit (lib) mkOption types;
   patterns = import ./patterns.nix;
 
+  timeout = types.ints.between 1 2147483;
   value = types.nullOr (types.either types.ints.u32 (types.strMatching patterns.line));
   keys =
     root:
@@ -208,6 +209,48 @@ in
       type = types.attrsOf (types.strMatching patterns.word);
       default = { };
       description = "`Set-NetAdapterPowerManagement` properties of physical Ethernet adapters, such as `WakeOnMagicPacket = \"Enabled\"`; set only where supported and different.";
+    };
+
+    winget = {
+      packages = mkOption {
+        type = types.attrsOf (
+          types.submodule {
+            options = {
+              source = mkOption {
+                type = types.enum [
+                  "winget"
+                  "msstore"
+                ];
+                default = "winget";
+                description = "Source the package is installed from.";
+              };
+              name = mkOption {
+                type = types.nullOr (types.strMatching patterns.plain);
+                default = null;
+                description = "Readable name for an opaque ID, such as an msstore one; not used by the install.";
+              };
+              location = mkOption {
+                type = types.nullOr (types.strMatching patterns.location);
+                default = null;
+                description = "Install directory passed as `--location`, for packages that refuse to install without one.";
+              };
+              timeout = mkOption {
+                type = timeout;
+                default = config.windows.winget.timeout;
+                defaultText = lib.literalExpression "config.windows.winget.timeout";
+                description = "Seconds the install may take.";
+              };
+            };
+          }
+        );
+        default = { };
+        description = "winget packages of the machine by package ID, installed machine-wide (`--scope machine`) by `windows-rebuild switch --winget` and verified by `windows-rebuild check --winget`.";
+      };
+      timeout = mkOption {
+        type = timeout;
+        default = 900;
+        description = "Seconds a package install may take before its process tree is stopped and the package is reported as failed.";
+      };
     };
 
     build.toplevel = mkOption {

@@ -1,6 +1,6 @@
 # nix-win
 
-Declarative configuration of a Windows host from the NixOS-WSL distribution running on it, in the spirit of nix-darwin. Packages stay with `winget configure`; nix-win owns everything else: registry (HKLM and the HKCU of every listed user), services, firewall rules, Windows capabilities, files with ACLs, power settings, scheduled tasks and network adapter power management.
+Declarative configuration of a Windows host from the NixOS-WSL distribution running on it, in the spirit of nix-darwin. nix-win owns machine-wide winget packages, the registry (HKLM and the HKCU of every listed user), services, firewall rules, Windows capabilities, files with ACLs, power settings, scheduled tasks and network adapter power management.
 
 NixOS modules declare the state, nix-win renders it into native Windows scripts in the Nix store, and `windows-rebuild` applies them with a single elevation and verifies the result.
 
@@ -42,8 +42,10 @@ NixOS modules declare the state, nix-win renders it into native Windows scripts 
 ```
 
 ```sh
-windows-rebuild switch   # apply, then verify every registry value
-windows-rebuild check    # verify only; non-zero exit on drift
+windows-rebuild switch            # apply, then verify every registry value
+windows-rebuild check             # verify only; non-zero exit on drift
+windows-rebuild switch --winget   # install the winget packages first, then apply and verify them too
+windows-rebuild check --winget    # verify, including that every winget package is installed
 ```
 
 ## Options
@@ -58,6 +60,7 @@ windows-rebuild check    # verify only; non-zero exit on drift
 | `windows.capabilities` | `Get-WindowsCapability` / `Add-WindowsCapability` |
 | `windows.files."<path>"` | copy when changed and accepted by the optional `validate` command, ACL reset to the given grants with Administrators as owner, `onChange` commands right after the copy and again on every `switch` until they all succeed |
 | `windows.power`, `windows.scheduledTasks`, `windows.networkAdapters.powerManagement` | `powercfg`, `schtasks`, `Set-NetAdapterPowerManagement` only where a supported property drifts |
+| `windows.winget.packages."<id>"` | only with `--winget`: `winget install --scope machine --no-upgrade` one package at a time with an optional `source`, `location` and `timeout`; verified with `winget list --scope machine`. Packages without a machine-wide installer belong to per-user configuration, not here |
 
 Registry paths and value names are case-insensitive on Windows, so two spellings that differ only in the case of ASCII letters fail evaluation (`lib.toLower` folds no other letters). Tweaks and raw values merge into one tree: setting the same value differently fails evaluation, `lib.mkForce` overrides. HKCU values need at least one entry in `windows.users`; `HKCU\Software\Classes` is rejected because a loaded `NTUSER.DAT` does not contain it.
 
@@ -67,6 +70,7 @@ Registry paths and value names are case-insensitive on Windows, so two spellings
 - `switch` elevates once: through the built-in `sudo.exe` from a normal terminal (it must run inline or with input disabled, `windows.defaults.system.sudo`), directly from an SSH session or SYSTEM. The elevated `stage.cmd` copies the rendered files from the store (over `\\wsl.localhost`) into `%ProgramFiles%\nix-win`, where other users cannot create anything in advance and only Administrators and SYSTEM have access (its ACL is reapplied on every run; a link at that path is removed as a link, anything else untrusted is renamed aside), and runs `nix-win.cmd apply` from there in one `cmd.exe /d` process; capabilities, firewall rules and adapters go through one PowerShell script. `check` without elevation runs `nix-win.cmd verify` from a copy in `%TEMP%`.
 - Every applied value, deletion and created key is read back with `reg query`; results go to stdout between `@@ <scope> <n>` markers and `compare.awk` matches them against the lines Nix expects. The machine scope always prints its marker first, so `switch` and `check` fail on drift, on missing values and when no results came back from Windows.
 - Other users' hives are loaded, written, verified and unloaded; a signed-in user (including a disconnected session) is skipped and reported as not checked.
+- winget packages are touched only with `--winget`, before everything else, so a package that a later step depends on (a network adapter a firewall rule is bound to) is already there. `winget.exe` is the caller's one Store-signed App Installer registration under the `PackageRoot` from HKLM, its Authenticode signature checked, not the user-writable alias; `--winget` is not supported under SYSTEM, which has no registration. The elevated winget downloads installers into `%ProgramFiles%\nix-win\winget\tmp` (`TMP` and `TEMP` point there) instead of the user's `%TEMP%`, and refuses to run when the user's winget settings set `portablePackageMachineRoot` or `defaultInstallRoot`. Packages install one at a time: concurrent winget processes fail on its package database. An install that outlives its `timeout` (`windows.winget.timeout`, 900 s by default) has its process tree stopped; if Windows Installer is still busy after another `timeout`, the remaining packages are skipped. "Already installed" counts as success, every other exit code is a `FAILED` line. Progress goes to stderr, winget output to `%ProgramFiles%\nix-win\winget\<id>.log` and `.log.err`. Without `--winget` the packages are reported as not checked.
 
 ## Threat model
 

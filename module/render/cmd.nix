@@ -35,6 +35,8 @@ rec {
       closing = if lib.mod (builtins.length pieces) 2 == 0 then "^\"" else "\"";
     in
     "\"${concatStringsSep "\\\"" (imap0 quotePiece pieces)}${closing}";
+  powershell =
+    file: "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%~dp0${file}\"";
   psString = s: "'${replaceStrings psQuotes (map (q: q + q) psQuotes) s}'";
   psArray = values: "@(${concatStringsSep ", " (map psString values)})";
   psHashtable =

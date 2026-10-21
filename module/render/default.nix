@@ -42,6 +42,14 @@ let
     } cfg.registry.HKCU
   );
   users = builtins.attrNames cfg.users;
+  winget = import ./winget.nix {
+    inherit
+      lib
+      cmd
+      cfg
+      stateDir
+      ;
+  };
 
   verify =
     scope: operations:
@@ -115,10 +123,11 @@ let
   script = fill ./scripts/nix-win.cmd {
     inherit header;
     callUsers = imap1 (i: _: "call :user_${toString i}") users;
+    wingetFlag = winget.flag;
+    wingetInstall = winget.install;
+    wingetVerify = winget.verify;
     apply = concatLists [
-      (lib.optional (commands.powershell != [ ])
-        "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%~dp0nix-win.ps1\" || set failed=1"
-      )
+      (lib.optional (commands.powershell != [ ]) "${cmd.powershell "nix-win.ps1"} || set failed=1")
       commands.services
       (map (file: "call :${file.label}") commands.files)
       (map (operation: operation.apply) machine)
@@ -139,10 +148,16 @@ let
     "stage.cmd" = cmd.crlf stage;
     "stage.ps1" = bom + builtins.readFile ./scripts/stage.ps1;
     "expected.tsv" = concatMapStrings (row: row + "\n") (
-      expected "machine" "" machine ++ concatMap (name: expected "user-${name}" "${name}: " hkcu) users
+      expected "machine" "" machine
+      ++ concatMap (name: expected "user-${name}" "${name}: " hkcu) users
+      ++ expected "winget" "" winget.operations
     );
   }
   // lib.optionalAttrs (commands.powershell != [ ]) { "nix-win.ps1" = bom + powershellScript; }
+  // lib.optionalAttrs winget.enabled {
+    "winget.json" = winget.json;
+    "winget.ps1" = bom + builtins.readFile ./scripts/winget.ps1;
+  }
   // mergeAttrsList (map (file: file.output) commands.files);
 in
 pkgs.runCommand "nix-win" { } (

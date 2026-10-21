@@ -1,16 +1,21 @@
 usage() {
-  echo "usage: windows-rebuild switch|check [--flake <flake>#<host>]" >&2
+  echo "usage: windows-rebuild switch|check [--flake <flake>#<host>] [--winget]" >&2
   exit 2
 }
 
 action=${1:-}
 [ $# -gt 0 ] && shift
 flake=$NIX_WIN_FLAKE
+winget=()
 while [ $# -gt 0 ]; do
   case $1 in
   --flake)
     flake=${2:?}
     shift 2
+    ;;
+  --winget)
+    winget=(winget)
+    shift
     ;;
   *) usage ;;
   esac
@@ -53,7 +58,7 @@ else
 fi
 
 failed=0
-"${run[@]}" /d /c "$entry" "$mode" </dev/null | tr -d '\r' >"$report" || failed=1
+"${run[@]}" /d /c "$entry" "$mode" "${winget[@]}" </dev/null | tr -d '\r' >"$report" || failed=1
 awk -F '\t' -f "$NIX_WIN_COMPARE" "$report" "$out/expected.tsv" || failed=1
 
 echo "nix-win: $action took $((($(date +%s%N) - start) / 1000000)) ms"
