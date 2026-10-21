@@ -1,8 +1,9 @@
-{ lib, ... }:
+{ config, lib, ... }:
 let
   inherit (lib) mkOption types;
   patterns = import ./patterns.nix;
 
+  timeout = types.ints.between 1 2147483;
   value = types.nullOr (types.either types.ints.u32 (types.strMatching patterns.line));
   keys =
     root:
@@ -210,10 +211,70 @@ in
       description = "`Set-NetAdapterPowerManagement` properties of physical Ethernet adapters, such as `WakeOnMagicPacket = \"Enabled\"`; set only where supported and different.";
     };
 
+    winget = {
+      packages = mkOption {
+        type = types.attrsOf (
+          types.submodule {
+            options = {
+              source = mkOption {
+                type = types.enum [
+                  "winget"
+                  "msstore"
+                ];
+                default = "winget";
+                description = "Source the package is installed from.";
+              };
+              name = mkOption {
+                type = types.nullOr (types.strMatching patterns.plain);
+                default = null;
+                description = "Readable name for an opaque ID, such as an msstore one; not used by the install.";
+              };
+              location = mkOption {
+                type = types.nullOr (types.strMatching patterns.location);
+                default = null;
+                description = "Absolute install directory passed as `--location`, for packages that refuse to install without one; only Administrators should be able to write to it, since the elevated installer puts its files there.";
+              };
+              timeout = mkOption {
+                type = timeout;
+                default = config.windows.winget.timeout;
+                defaultText = lib.literalExpression "config.windows.winget.timeout";
+                description = "Seconds the install may take.";
+              };
+            };
+          }
+        );
+        default = { };
+        description = "winget packages of the machine by package ID, installed machine-wide (`--scope machine`) by `windows-rebuild switch --winget` and verified by `windows-rebuild check --winget`.";
+      };
+      bundle = mkOption {
+        type = types.nullOr types.path;
+        default = null;
+        example = lib.literalExpression "./winget.bundle.json";
+        description = "JSON object of packages in the form of `windows.winget.packages`, merged into it; the `winget` command keeps it up to date.";
+      };
+      bundleFile = mkOption {
+        type = types.nullOr (types.strMatching patterns.absolutePath);
+        default = null;
+        example = "/home/alice/dotfiles/hosts/pc/winget.bundle.json";
+        description = "Absolute path of `windows.winget.bundle` in the working tree of the configuration; set, it installs a `winget` command in the distribution that runs `winget.exe` and records `install` / `uninstall` in this file.";
+      };
+      timeout = mkOption {
+        type = timeout;
+        default = 900;
+        description = "Seconds a package install may take before its process tree is stopped and the package is reported as failed.";
+      };
+    };
+
     build.toplevel = mkOption {
       type = types.package;
       readOnly = true;
       description = "Rendered scripts and files that `windows-rebuild` stages and runs.";
+    };
+
+    build.winget = mkOption {
+      type = types.package;
+      readOnly = true;
+      description = "The `winget` wrapper that records installs in `windows.winget.bundleFile`.";
     };
 
     build.rebuild = mkOption {

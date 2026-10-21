@@ -41,5 +41,19 @@ _: {
     };
     power.timeouts.standby-timeout-ac = 0;
     scheduledTasks."\\Microsoft\\Windows\\Example\\Task".enable = false;
+    winget = {
+      packages = {
+        "Blizzard.BattleNet".location = ''C:\Program Files (x86)\Battle.net'';
+        "Notepad++.Notepad++".timeout = 120;
+        "Tailscale.Tailscale" = { };
+        XPDP2QW12DFSFK = {
+          source = "msstore";
+          name = "Example Store app";
+        };
+      };
+      timeout = 600;
+      bundle = ./bundle.json;
+      bundleFile = "/home/alice/config/winget.bundle.json";
+    };
   };
 }

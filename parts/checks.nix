@@ -11,7 +11,10 @@ let
         extra
       ];
     };
-  render = (system { }).config.windows.build.toplevel;
+  example = (system { }).config.windows.build;
+  render = example.toplevel;
+  withoutPackages =
+    (system { windows.winget.packages = lib.mkForce { }; }).config.windows.build.toplevel;
 
   rejected = {
     case-clash = {
@@ -61,6 +64,14 @@ let
       config.windows.users.ALICE = { };
       message = "user names differ only in case";
     };
+    winget-package-id = {
+      config.windows.winget.packages."-bad" = { };
+      message = "winget package ID '-bad' must match";
+    };
+    winget-package-id-case = {
+      config.windows.winget.packages."tailscale.tailscale" = { };
+      message = "winget package IDs differ only in case";
+    };
     file-path-case = {
       config.windows.files."C:\\PROGRAMDATA\\NixWin\\example.conf".text = "";
       message = "file paths differ only in case";
@@ -89,12 +100,22 @@ in
             (pkgs.runCommandLocal "nix-win-rejects-invalid" { } "touch $out");
       }
       // lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
-        render = pkgs.runCommandLocal "nix-win-render" { } ''
-          bash ${../tests/render.sh} ${render}
-          bash ${../tests/compare.sh} ${../module/rebuild/compare.awk} ${render}/expected.tsv
-          ${lib.getExe powershell.analyze} ${../module/render/scripts/stage.ps1} ${../module/render/scripts/prelude.ps1} ${./powershell/format.ps1} ${./powershell/analyze.ps1} ${render}/nix-win.ps1
-          touch $out
-        '';
+        render =
+          pkgs.runCommandLocal "nix-win-render"
+            {
+              nativeBuildInputs = [
+                pkgs.jq
+                pkgs.util-linux
+              ];
+            }
+            ''
+              bash ${../tests/render.sh} ${render}
+              bash ${../tests/wrapper.sh} ${lib.getExe example.winget}
+              bash ${../tests/without-packages.sh} ${withoutPackages}
+              bash ${../tests/compare.sh} ${../module/rebuild/compare.awk} ${render}/expected.tsv
+              ${lib.getExe powershell.analyze} ${../module/render/scripts/stage.ps1} ${../module/render/scripts/prelude.ps1} ${../module/render/scripts/winget.ps1} ${./powershell/format.ps1} ${./powershell/analyze.ps1} ${render}/nix-win.ps1
+              touch $out
+            '';
       };
     };
 }

@@ -1,12 +1,15 @@
 @header@
 set "mode=%~1"
+@wingetFlag@
 set failed=0
 set "admin="
 whoami /groups | findstr /c:"S-1-16-12288" /c:"S-1-16-16384" >nul && set "admin=1"
 if "%mode%"=="apply" if not defined admin (echo FAILED applying needs an administrator session& exit /b 1)
+@wingetInstall@
 if "%mode%"=="apply" call :apply
 call :verify_machine
 @callUsers@
+@wingetVerify@
 exit /b %failed%
 :apply
 @apply@

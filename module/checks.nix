@@ -98,3 +98,5 @@ registry "HKLM" cfg.registry.HKLM
 ++ unique "scheduled tasks differ only in case" lib.id (attrNames cfg.scheduledTasks)
 ++ each "file path" patterns.plain (attrNames cfg.files)
 ++ unique "file paths differ only in case" lib.id (attrNames cfg.files)
+++ each "winget package ID" patterns.packageId (attrNames cfg.winget.packages)
+++ unique "winget package IDs differ only in case" lib.id (attrNames cfg.winget.packages)

@@ -11,12 +11,12 @@ hasP() { grep -qP -- "$2" "$1" || fail "$1 lacks /$2/"; }
 for f in nix-win.cmd stage.cmd; do
   if grep -qv $'\r$' "$out/$f"; then fail "$f: line without CRLF"; fi
 done
-for f in nix-win.ps1 stage.ps1; do
+for f in nix-win.ps1 stage.ps1 winget.ps1; do
   test "$(head -c 3 "$out/$f" | od -An -tx1 | tr -d ' ')" = efbbbf || fail "$f: no UTF-8 BOM"
 done
 has "$script" '%~dp0nix-win.ps1" || set failed=1'
 has "$out/stage.cmd" '"%~dp0stage.ps1" "%ProgramFiles%\nix-win" || (echo FAILED staging into %ProgramFiles%\nix-win& exit /b 1)'
-has "$out/stage.cmd" 'call "%ProgramFiles%\nix-win\current\nix-win.cmd" %1'
+has "$out/stage.cmd" 'call "%ProgramFiles%\nix-win\current\nix-win.cmd" %*'
 has "$out/nix-win.ps1" '$global:ErrorActionPreference = '"'Stop'"
 has "$script" 'set "PSModulePath=%ProgramFiles%\WindowsPowerShell\Modules;%SystemRoot%\System32\WindowsPowerShell\v1.0\Modules"'
 has "$script" 'echo @@ machine 0000'
@@ -41,3 +41,13 @@ hasP "$out/expected.tsv" '^machine\t\d{4}\tvalue\tHKLM\\SOFTWARE\\NixWin\\Exampl
 hasP "$out/expected.tsv" '^machine\t\d{4}\tabsent\tHKLM\\SOFTWARE\\NixWin\\Example\\Gone\t$'
 hasP "$out/expected.tsv" '^user-alice\t\d{4}\tpresent\talice: HKCU\\Software\\NixWin\\Empty\t$'
 test "$(cat "$out/files/0001")" = "key = value" || fail "files/0001 content"
+has "$script" 'if "%~2"=="winget" set "winget=1"'
+has "$script" 'if "%mode%"=="apply" if defined winget powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0winget.ps1" install "%ProgramFiles%\nix-win" || set failed=1'
+has "$script" 'if defined winget powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0winget.ps1" verify "%ProgramFiles%\nix-win" || set failed=1'
+has "$out/winget.json" '{"Id":"Blizzard.BattleNet","Index":"0001","Location":"C:\\Program Files (x86)\\Battle.net","Source":"winget","Timeout":600}'
+has "$out/winget.json" '{"Id":"Notepad++.Notepad++","Index":"0002","Location":null,"Source":"winget","Timeout":120}'
+has "$out/winget.json" '{"Id":"Valve.Steam","Index":"0004","Location":null,"Source":"winget","Timeout":600}'
+has "$out/winget.json" '{"Id":"XPDP2QW12DFSFK","Index":"0005","Location":null,"Source":"msstore","Timeout":600}'
+has "$out/winget.ps1" "[ValidateSet('install', 'verify')][string]\$Mode"
+hasP "$out/expected.tsv" '^winget\t0002\tpresent\twinget Notepad\+\+\.Notepad\+\+\t$'
+hasP "$out/expected.tsv" '^winget\t0005\tpresent\twinget XPDP2QW12DFSFK \(Example Store app\)\t$'
