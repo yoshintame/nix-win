@@ -246,6 +246,12 @@ in
         default = { };
         description = "winget packages of the machine by package ID, installed machine-wide (`--scope machine`) by `windows-rebuild switch --winget` and verified by `windows-rebuild check --winget`.";
       };
+      bundleFile = mkOption {
+        type = types.nullOr (types.strMatching "/[^\r\n\t]+");
+        default = null;
+        example = "/home/alice/dotfiles/hosts/pc/winget.bundle.json";
+        description = "Absolute path, in the working tree of the configuration, of the JSON bundle the host imports into `windows.winget.packages`; set, it installs a `winget` command in the distribution that runs `winget.exe` and records `install` / `uninstall` in this file.";
+      };
       timeout = mkOption {
         type = timeout;
         default = 900;
@@ -257,6 +263,12 @@ in
       type = types.package;
       readOnly = true;
       description = "Rendered scripts and files that `windows-rebuild` stages and runs.";
+    };
+
+    build.winget = mkOption {
+      type = types.package;
+      readOnly = true;
+      description = "The `winget` wrapper that records installs in `windows.winget.bundleFile`.";
     };
 
     build.rebuild = mkOption {

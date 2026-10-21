@@ -24,6 +24,14 @@ in
       inherit (cfg) flake;
       nix = config.nix.package;
     };
-    environment.systemPackages = [ cfg.build.rebuild ];
+    windows.build.winget = import ./wrapper {
+      inherit pkgs;
+      bundleFile = toString cfg.winget.bundleFile;
+      declared = builtins.attrNames cfg.winget.packages;
+    };
+    environment.systemPackages = [
+      cfg.build.rebuild
+    ]
+    ++ lib.optional (cfg.winget.bundleFile != null) cfg.build.winget;
   };
 }

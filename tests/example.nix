@@ -52,6 +52,7 @@ _: {
         };
       };
       timeout = 600;
+      bundleFile = "/home/alice/config/winget.bundle.json";
     };
   };
 }

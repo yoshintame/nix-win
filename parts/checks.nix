@@ -11,7 +11,10 @@ let
         extra
       ];
     };
-  render = (system { }).config.windows.build.toplevel;
+  example = (system { }).config.windows.build;
+  render = example.toplevel;
+  withoutPackages =
+    (system { windows.winget.packages = lib.mkForce { }; }).config.windows.build.toplevel;
 
   rejected = {
     case-clash = {
@@ -97,8 +100,10 @@ in
             (pkgs.runCommandLocal "nix-win-rejects-invalid" { } "touch $out");
       }
       // lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
-        render = pkgs.runCommandLocal "nix-win-render" { } ''
+        render = pkgs.runCommandLocal "nix-win-render" { nativeBuildInputs = [ pkgs.jq ]; } ''
           bash ${../tests/render.sh} ${render}
+          bash ${../tests/wrapper.sh} ${lib.getExe example.winget}
+          bash ${../tests/without-packages.sh} ${withoutPackages}
           bash ${../tests/compare.sh} ${../module/rebuild/compare.awk} ${render}/expected.tsv
           ${lib.getExe powershell.analyze} ${../module/render/scripts/stage.ps1} ${../module/render/scripts/prelude.ps1} ${../module/render/scripts/winget.ps1} ${./powershell/format.ps1} ${./powershell/analyze.ps1} ${render}/nix-win.ps1
           touch $out
