@@ -232,7 +232,7 @@ in
               location = mkOption {
                 type = types.nullOr (types.strMatching patterns.location);
                 default = null;
-                description = "Install directory passed as `--location`, for packages that refuse to install without one.";
+                description = "Absolute install directory passed as `--location`, for packages that refuse to install without one; only Administrators should be able to write to it, since the elevated installer puts its files there.";
               };
               timeout = mkOption {
                 type = timeout;
@@ -246,11 +246,17 @@ in
         default = { };
         description = "winget packages of the machine by package ID, installed machine-wide (`--scope machine`) by `windows-rebuild switch --winget` and verified by `windows-rebuild check --winget`.";
       };
+      bundle = mkOption {
+        type = types.nullOr types.path;
+        default = null;
+        example = lib.literalExpression "./winget.bundle.json";
+        description = "JSON object of packages in the form of `windows.winget.packages`, merged into it; the `winget` command keeps it up to date.";
+      };
       bundleFile = mkOption {
-        type = types.nullOr (types.strMatching "/[^\r\n\t]+");
+        type = types.nullOr (types.strMatching patterns.absolutePath);
         default = null;
         example = "/home/alice/dotfiles/hosts/pc/winget.bundle.json";
-        description = "Absolute path, in the working tree of the configuration, of the JSON bundle the host imports into `windows.winget.packages`; set, it installs a `winget` command in the distribution that runs `winget.exe` and records `install` / `uninstall` in this file.";
+        description = "Absolute path of `windows.winget.bundle` in the working tree of the configuration; set, it installs a `winget` command in the distribution that runs `winget.exe` and records `install` / `uninstall` in this file.";
       };
       timeout = mkOption {
         type = timeout;

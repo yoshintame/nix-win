@@ -27,7 +27,7 @@ in
   operations = map (p: {
     inherit (p) index;
     kind = "present";
-    label = "winget ${p.id}";
+    label = "winget ${p.id}${lib.optionalString (p.name != null) " (${p.name})"}";
     line = "";
   }) packages;
   json = builtins.toJSON (

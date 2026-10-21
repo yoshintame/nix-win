@@ -8,76 +8,140 @@ fail() {
 
 printf '#!%s\n' "$(command -v bash)" >"$dir/winget.exe"
 cat >>"$dir/winget.exe" <<'FAKE'
-echo "$*" >>"$FAKE_DIR/calls"
-case $1 in
+set -eu
+all=$*
+echo "$all" >>"$FAKE_DIR/calls"
+state=$FAKE_DIR/installed
+touch "$state"
+command=$1
+shift
+id= scope= source=winget
+while [ $# -gt 0 ]; do
+  case $1 in
+  --id | -q | --query) id=$2; shift ;;
+  --scope) scope=$2; shift ;;
+  -s | --source) source=$2; shift ;;
+  -*) ;;
+  *) id=$1 ;;
+  esac
+  shift
+done
+canonical=${FAKE_CANONICAL:-$id}
+find() { grep -i "^$1|" "$state" || true; }
+case $command in
 install)
-  echo "Found $FAKE_NAME [$FAKE_ID] Version 1.0"
-  if [ -n "${FAKE_ALREADY:-}" ]; then
-    echo "Found an existing package already installed. Trying to upgrade the installed package..."
-    echo "No available upgrade found."
-    exit 43
-  fi
-  if [ -n "${FAKE_FAIL:-}" ]; then
-    echo "Installer failed with exit code: 1603"
-    exit 20
-  fi
-  echo "Successfully installed"
+  [ -z "${FAKE_FAIL:-}" ] || exit 20
+  if [ -n "$(find "$canonical")" ]; then exit 43; fi
+  echo "$canonical|${FAKE_SCOPE:-${scope:-user}}|${FAKE_SOURCE:-$source}|${FAKE_NAME:-$canonical}" >>"$state"
   ;;
 uninstall)
-  echo "Found $FAKE_NAME [$FAKE_ID]"
-  if [ -n "${FAKE_FAIL:-}" ]; then
-    echo "Uninstall failed with exit code: 1603"
-    exit 20
-  fi
-  echo "Successfully uninstalled"
+  [ -z "${FAKE_FAIL:-}" ] || exit 20
+  [ -n "$(find "$id")" ] || exit 20
+  grep -vi "^$id|" "$state" >"$state.next" || true
+  mv "$state.next" "$state"
   ;;
 list)
+  entry=$(find "$id")
+  [ -n "$entry" ] || exit 20
+  IFS='|' read -r eid escope esource ename <<<"$entry"
+  if [ -n "$scope" ] && [ "$scope" != "$escope" ]; then exit 20; fi
   echo "Name Id Version Source"
-  echo "$FAKE_NAME $FAKE_ID 1.0 ${FAKE_SOURCE:-winget}"
+  echo "------------------------"
+  echo "$ename $eid 1.0 $esource"
   ;;
-*) echo "passthrough $*" ;;
+*) echo "passthrough $all" ;;
 esac
 FAKE
 chmod +x "$dir/winget.exe"
 
 export FAKE_DIR=$dir NIX_WIN_WINGET_EXE=$dir/winget.exe NIX_WIN_WINGET_BUNDLE=$dir/winget.bundle.json
 run() { "$wrapper" "$@" >"$dir/out" 2>&1; }
-bundle() { jq -cS . "$NIX_WIN_WINGET_BUNDLE"; }
+keys() { jq -c 'keys' "$NIX_WIN_WINGET_BUNDLE"; }
+entry() { jq -c --arg id "$1" '.[$id]' "$NIX_WIN_WINGET_BUNDLE"; }
+says() { grep -q -- "$1" "$dir/out" || fail "no note '$1': $(cat "$dir/out")"; }
 
-FAKE_NAME=Steam FAKE_ID=Valve.Steam run install steam
-test "$(bundle)" = '{"Valve.Steam":{}}' || fail "steam not recorded: $(bundle)"
-grep -qx 'install steam --scope machine' "$dir/calls" || fail "install without --scope machine: $(cat "$dir/calls")"
+run install --id Valve.Steam
+test "$(entry Valve.Steam)" = '{}' || fail "an exact winget install is not recorded: $(cat "$NIX_WIN_WINGET_BUNDLE")"
+grep -qx 'install --id Valve.Steam --scope machine' "$dir/calls" || fail "install without --scope machine: $(cat "$dir/calls")"
 
-FAKE_NAME="NVIDIA App" FAKE_ID=XP8CLZL93F5Z4P FAKE_SOURCE=msstore run install XP8CLZL93F5Z4P
-test "$(jq -c '.XP8CLZL93F5Z4P' "$NIX_WIN_WINGET_BUNDLE")" = '{"name":"NVIDIA App","source":"msstore"}' || fail "msstore entry: $(bundle)"
+FAKE_SOURCE=msstore FAKE_NAME="NVIDIA App" run install XP8CLZL93F5Z4P
+test "$(entry XP8CLZL93F5Z4P)" = '{"name":"NVIDIA App","source":"msstore"}' || fail "msstore entry: $(entry XP8CLZL93F5Z4P)"
 
-FAKE_NAME=Spotify FAKE_ID=Spotify.Spotify run install Spotify.Spotify --scope user
-jq -e 'has("Spotify.Spotify") | not' "$NIX_WIN_WINGET_BUNDLE" >/dev/null || fail "user-scope install recorded"
-grep -q 'not recorded' "$dir/out" || fail "no note for a user-scope install"
+run install Spotify.Spotify --scope User
+test "$(entry Spotify.Spotify)" = null || fail "a user-scope install is recorded"
+says 'machine-wide packages only'
 
-FAKE_NAME=Tailscale FAKE_ID=Tailscale.Tailscale run install Tailscale.Tailscale
-jq -e 'has("Tailscale.Tailscale") | not' "$NIX_WIN_WINGET_BUNDLE" >/dev/null || fail "module package recorded"
-grep -q 'declared in a Nix module' "$dir/out" || fail "no note for a module package"
+run install --id Tailscale.Tailscale
+test "$(entry Tailscale.Tailscale)" = null || fail "a module package is recorded"
+says 'declared in a Nix module'
 
-if FAKE_NAME=Broken FAKE_ID=Broken.App FAKE_FAIL=1 run install Broken.App; then fail "failed install exited 0"; fi
-jq -e 'has("Broken.App") | not' "$NIX_WIN_WINGET_BUNDLE" >/dev/null || fail "failed install recorded"
+if FAKE_FAIL=1 run install --id Broken.App; then fail "a failed install exits 0"; fi
+test "$(entry Broken.App)" = null || fail "a failed install is recorded"
 
-FAKE_NAME="Beta App [Preview]" FAKE_ID=Beta.App run install Beta.App
-test "$(jq -c 'keys' "$NIX_WIN_WINGET_BUNDLE")" = '["Beta.App","Valve.Steam","XP8CLZL93F5Z4P"]' || fail "id not taken from the last brackets: $(bundle)"
+FAKE_CANONICAL=Valve.SteamBeta run install steam
+test "$(entry steam)" = null || fail "a fuzzy query is recorded under the query"
+test "$(entry Valve.SteamBeta)" = null || fail "a fuzzy query is recorded"
+says 'pass the package ID with --id'
+
+echo 'Git.Git|user|winget|Git' >>"$dir/installed"
+code=0
+run install --id Git.Git || code=$?
+test "$code" = 43 || fail "winget's exit code is not passed through: $code"
+test "$(entry Git.Git)" = null || fail "a package installed per-user is recorded as machine-wide"
 
 code=0
-FAKE_NAME=Git FAKE_ID=Git.Git FAKE_ALREADY=1 run install Git.Git || code=$?
-test "$code" = 43 || fail "winget's exit code not passed through: $code"
-jq -e 'has("Git.Git")' "$NIX_WIN_WINGET_BUNDLE" >/dev/null || fail "an already installed package is not recorded"
+run install --id valve.steam || code=$?
+test "$code" = 43 || fail "winget's exit code is not passed through after recording: $code"
+test "$(keys)" = '["Valve.Steam","XP8CLZL93F5Z4P"]' || fail "a differently cased id adds a key: $(keys)"
 
-if FAKE_NAME=Steam FAKE_ID=Valve.Steam FAKE_FAIL=1 run uninstall Valve.Steam; then fail "failed uninstall exited 0"; fi
-jq -e 'has("Valve.Steam")' "$NIX_WIN_WINGET_BUNDLE" >/dev/null || fail "failed uninstall removed the package"
+run install --id A.One --id B.Two
+test "$(keys)" = '["Valve.Steam","XP8CLZL93F5Z4P"]' || fail "a multi-package install changes the bundle: $(keys)"
+says 'one package per command'
 
-FAKE_NAME=Steam FAKE_ID=Valve.Steam run uninstall Valve.Steam
-jq -e 'has("Valve.Steam") | not' "$NIX_WIN_WINGET_BUNDLE" >/dev/null || fail "steam not removed"
+run install --manifest ./x.yaml
+says 'from a manifest'
 
-FAKE_NAME=Tailscale FAKE_ID=Tailscale.Tailscale run uninstall Tailscale.Tailscale
-grep -q 'remove it there' "$dir/out" || fail "no note for removing a module package"
+run install --id Contoso.Tool --source contoso
+test "$(entry Contoso.Tool)" = null || fail "a package from another source is recorded"
+
+FAKE_SOURCE=contoso run install --id Private.Tool
+test "$(entry Private.Tool)" = null || fail "a package listed from another source is recorded"
+says 'comes from source contoso'
+
+if FAKE_FAIL=1 run uninstall --id Valve.Steam; then fail "a failed uninstall exits 0"; fi
+test "$(entry Valve.Steam)" = '{}' || fail "a failed uninstall removes the entry"
+
+run uninstall --id VALVE.STEAM
+test "$(entry Valve.Steam)" = null || fail "uninstall in another case keeps the entry"
+
+run install --id Valve.Steam
+test "$(entry Valve.Steam)" = '{}' || fail "reinstalling a package removed from the bundle is not recorded"
+
+echo 'Tailscale.Tailscale|machine|winget|Tailscale' >>"$dir/installed"
+run uninstall --id Tailscale.Tailscale
+says 'remove it there'
+
+printf '[]' >"$NIX_WIN_WINGET_BUNDLE"
+: >"$dir/calls"
+if run install --id Other.App; then fail "an array bundle is accepted"; fi
+test ! -s "$dir/calls" || fail "winget ran with an invalid bundle"
+
+: >"$NIX_WIN_WINGET_BUNDLE"
+run install --id Other.App
+test "$(keys)" = '["Other.App"]' || fail "an empty bundle file is not treated as {}: $(keys)"
+
+ln -s "$NIX_WIN_WINGET_BUNDLE" "$dir/link.json"
+NIX_WIN_WINGET_BUNDLE=$dir/link.json run install --id Linked.App
+test -L "$dir/link.json" || fail "writing the bundle replaced a symlink"
+test "$(entry Linked.App)" = '{}' || fail "an install through a symlinked bundle is not recorded"
+
+(
+  flock 9
+  sleep 3
+) 9<>"$NIX_WIN_WINGET_BUNDLE" &
+sleep 1
+if timeout 1 "$wrapper" install --id Locked.App >"$dir/out" 2>&1; then fail "the bundle is written while another process holds its lock"; fi
+wait
 
 run search notepad
-grep -qx 'passthrough search notepad' "$dir/out" || fail "search not passed through"
+grep -qx 'passthrough search notepad' "$dir/out" || fail "search is not passed through"

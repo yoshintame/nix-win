@@ -46,6 +46,8 @@ has "$script" 'if "%mode%"=="apply" if defined winget powershell -NoProfile -Non
 has "$script" 'if defined winget powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0winget.ps1" verify "%ProgramFiles%\nix-win" || set failed=1'
 has "$out/winget.json" '{"Id":"Blizzard.BattleNet","Index":"0001","Location":"C:\\Program Files (x86)\\Battle.net","Source":"winget","Timeout":600}'
 has "$out/winget.json" '{"Id":"Notepad++.Notepad++","Index":"0002","Location":null,"Source":"winget","Timeout":120}'
-has "$out/winget.json" '{"Id":"XPDP2QW12DFSFK","Index":"0004","Location":null,"Source":"msstore","Timeout":600}'
+has "$out/winget.json" '{"Id":"Valve.Steam","Index":"0004","Location":null,"Source":"winget","Timeout":600}'
+has "$out/winget.json" '{"Id":"XPDP2QW12DFSFK","Index":"0005","Location":null,"Source":"msstore","Timeout":600}'
 has "$out/winget.ps1" "[ValidateSet('install', 'verify')][string]\$Mode"
 hasP "$out/expected.tsv" '^winget\t0002\tpresent\twinget Notepad\+\+\.Notepad\+\+\t$'
+hasP "$out/expected.tsv" '^winget\t0005\tpresent\twinget XPDP2QW12DFSFK \(Example Store app\)\t$'

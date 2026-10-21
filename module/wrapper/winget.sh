@@ -1,7 +1,7 @@
 bundle=${NIX_WIN_WINGET_BUNDLE:-$NIX_WIN_BUNDLE_FILE}
 exe=${NIX_WIN_WINGET_EXE:-}
 if [ -z "$exe" ]; then
-  localappdata=$(cd /mnt/c && /mnt/c/Windows/System32/cmd.exe /d /c 'echo %LOCALAPPDATA%' </dev/null | tr -d '\r')
+  localappdata=$(cd /mnt/c && /mnt/c/Windows/System32/cmd.exe /d /c 'chcp 65001 >nul & echo %LOCALAPPDATA%' </dev/null | tr -d '\r')
   exe="$(wslpath -u "$localappdata")/Microsoft/WindowsApps/winget.exe"
 fi
 
@@ -13,78 +13,112 @@ uninstall | remove | rm) action=remove ;;
 *) exec "$exe" "$@" ;;
 esac
 
+takesValue() {
+  case $1 in
+  --id | -q | --query | -s | --source | --scope | -m | --manifest | --name | --moniker | -v | --version | -a | --architecture | --installer-type | -l | --location | --locale | -o | --log | --override | --custom | --header | --authentication-mode | --authentication-account | --rename | --product-code | --dependency-source) return 0 ;;
+  *) return 1 ;;
+  esac
+}
+
 args=("$@")
+ids=()
 source=
 scope=
+manifest=false
 for ((i = 1; i < ${#args[@]}; i++)); do
-  case ${args[i]} in
-  -s | --source) source=${args[i + 1]:-} ;;
-  --source=*) source=${args[i]#--source=} ;;
-  --scope) scope=${args[i + 1]:-} ;;
-  --scope=*) scope=${args[i]#--scope=} ;;
+  arg=${args[i]}
+  value=${args[i + 1]:-}
+  case $arg in
+  --id | -q | --query) ids+=("$value") ;;
+  --id=* | --query=*) ids+=("${arg#*=}") ;;
+  -s | --source) source=$value ;;
+  --source=*) source=${arg#*=} ;;
+  --scope) scope=${value,,} ;;
+  --scope=*)
+    scope=${arg#*=}
+    scope=${scope,,}
+    ;;
+  -m | --manifest | --manifest=*) manifest=true ;;
+  -*) ;;
+  *) takesValue "${args[i - 1]}" || ids+=("$arg") ;;
   esac
 done
+
 if [ "$action" = add ] && [ -z "$scope" ]; then
   args+=(--scope machine)
   scope=machine
 fi
 
-log=$(mktemp)
-trap 'rm -f "$log"' EXIT
+reason=
+if $manifest; then
+  reason="installs from a manifest are not recorded"
+elif [ ${#ids[@]} -ne 1 ]; then
+  reason="the bundle is updated only for one package per command"
+elif [ "$action" = add ] && [ "$scope" != machine ]; then
+  reason="the bundle holds machine-wide packages only, so a --scope $scope install is not recorded"
+elif [ -n "$source" ] && [ "$source" != winget ] && [ "$source" != msstore ]; then
+  reason="packages from source $source are not recorded"
+elif [ -s "$bundle" ] && ! jq -e 'type == "object"' "$bundle" >/dev/null 2>&1; then
+  note "$bundle is not a JSON object; fix it before installing or uninstalling through this command"
+  exit 1
+fi
+
 set +e
-"$exe" "${args[@]}" | tee "$log"
-code=${PIPESTATUS[0]}
+"$exe" "${args[@]}"
+code=$?
 set -e
 
-found=$(tr '\r' '\n' <"$log" | grep -E '^Found .* \[[^]]+\]' | tail -n 1 || true)
-id=$(sed -E 's/.*\[([^]]+)\][^[]*$/\1/' <<<"$found")
-name=$(sed -E 's/^Found (.*) \[[^]]+\].*$/\1/' <<<"$found")
-if [ -z "$id" ]; then
+if [ -n "$reason" ]; then
+  note "$reason"
+  exit "$code"
+fi
+id=${ids[0]}
+
+listed() {
+  "$exe" list --id "$id" --exact "$@" --accept-source-agreements --disable-interactivity </dev/null | tr -d '\r' |
+    awk -v id="$id" 'BEGIN { id = tolower(id) } { for (i = 2; i <= NF; i++) if (tolower($i) == id) { name = $1; for (j = 2; j < i; j++) name = name " " $j; print $i "\t" name "\t" $NF; exit } }' || true
+}
+
+if grep -qixF -- "$id" <<<"$NIX_WIN_DECLARED"; then
+  if [ "$action" = add ]; then
+    note "$id is declared in a Nix module; the bundle is left as is"
+  elif [ -z "$(listed)" ]; then
+    note "$id is declared in a Nix module; remove it there, or the next switch --winget installs it again"
+  fi
   exit "$code"
 fi
 
-if [ "$action" = add ]; then
-  if [ "$code" -ne 0 ] && ! grep -qE 'already installed|No available upgrade found|No newer package versions' "$log"; then
-    exit "$code"
+update() {
+  local next current
+  next=$(mktemp)
+  exec 9<>"$bundle"
+  flock 9
+  current=$(cat "$bundle")
+  if jq -S "$@" <<<"${current:-"{}"}" >"$next"; then
+    cat "$next" >"$bundle"
   fi
-else
-  if [ "$code" -ne 0 ] && ! grep -q 'Successfully uninstalled' "$log"; then
-    exit "$code"
-  fi
-fi
-
-[ -f "$bundle" ] || echo '{}' >"$bundle"
-inBundle=$(jq --arg id "$id" 'has($id)' "$bundle")
-declared=false
-if grep -qxF -- "$id" <<<"$NIX_WIN_DECLARED" && [ "$inBundle" = false ]; then declared=true; fi
-
-edit() {
-  local next
-  next=$(mktemp "$bundle.XXXXXX")
-  jq -S "$@" "$bundle" >"$next"
-  mv "$next" "$bundle"
+  rm -f "$next"
 }
+key='((keys | map(select(ascii_downcase == ($id | ascii_downcase))) | first) // $id)'
 
 if [ "$action" = add ]; then
-  if [ "$scope" != machine ]; then
-    note "$id is installed with --scope $scope; the bundle holds machine-wide packages only, so it is not recorded"
-  elif $declared; then
-    note "$id is declared in a Nix module; the bundle is left as is"
-  else
-    if [ -z "$source" ]; then
-      source=$("$exe" list --id "$id" --exact --disable-interactivity </dev/null | tr -d '\r' | awk -v id="$id" 'index($0, id) { print $NF }' | tail -n 1)
-    fi
-    if [ "$source" = msstore ]; then
-      edit --arg id "$id" --arg name "$name" '.[$id] = ((.[$id] // {}) + { source: "msstore", name: $name })'
-    else
-      edit --arg id "$id" '.[$id] = (.[$id] // {})'
-    fi
-    note "recorded $id in $bundle"
+  IFS=$'\t' read -r canonical name found <<<"$(listed --scope machine)"
+  if [ -z "${canonical:-}" ]; then
+    note "$id is not installed machine-wide under that exact ID; pass the package ID with --id to record it"
+    exit "$code"
   fi
-elif [ "$inBundle" = true ]; then
-  edit --arg id "$id" 'del(.[$id])'
+  source=${source:-$found}
+  case $source in
+  winget) update --arg id "$canonical" ".[$key] = (.[$key] // {})" ;;
+  msstore) update --arg id "$canonical" --arg name "$name" ".[$key] = ((.[$key] // {}) + { source: \"msstore\", name: \$name })" ;;
+  *)
+    note "$canonical comes from source ${source:-unknown}, not recorded"
+    exit "$code"
+    ;;
+  esac
+  note "recorded $canonical in $bundle"
+elif [ -z "$(listed)" ] && [ -s "$bundle" ] && [ "$(jq --arg id "$id" "$key as \$k | has(\$k)" "$bundle")" = true ]; then
+  update --arg id "$id" "del(.[$key])"
   note "removed $id from $bundle"
-elif $declared; then
-  note "$id is declared in a Nix module; remove it there, or the next switch --winget installs it again"
 fi
 exit "$code"

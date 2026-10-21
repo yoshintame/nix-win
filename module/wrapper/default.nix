@@ -11,6 +11,7 @@ pkgs.writeShellApplication {
     pkgs.gnugrep
     pkgs.gnused
     pkgs.jq
+    pkgs.util-linux
   ];
   runtimeEnv = {
     NIX_WIN_BUNDLE_FILE = bundleFile;

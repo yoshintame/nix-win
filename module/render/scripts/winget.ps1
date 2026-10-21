@@ -6,7 +6,8 @@ param(
 $global:ErrorActionPreference = 'Stop'
 $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
 
-$installed = @('0x00000000', '0x8A15002B', '0x8A150061')
+$installed = @('0x00000000', '0x8A15002B', '0x8A150061', '0x8A15010D')
+$rebootRequired = '0x8A150109'
 $family = 'Microsoft.DesktopAppInstaller_8wekyb3d8bbwe'
 $unsafeSettings = @('portablePackageMachineRoot', 'defaultInstallRoot')
 
@@ -37,15 +38,35 @@ function Get-Winget {
   $winget
 }
 
-function Assert-SafeSetting([string]$Winget) {
+function Assert-SafeSetting([string]$Path, [string]$Text) {
+  if ($Text -cmatch '(?<!\\)(?:\\\\)*\\u') {
+    throw "$Path uses \u escapes, which could hide a setting that points an elevated install at a directory the user controls"
+  }
+  foreach ($name in $unsafeSettings) {
+    if ($Text -match [regex]::Escape($name)) {
+      throw "$Path sets $name, which would point an elevated install at a directory the user controls"
+    }
+  }
+}
+
+function Lock-UserSetting([string]$Winget) {
   $file = (& $Winget settings export | ConvertFrom-Json).userSettingsFile
-  foreach ($candidate in @($file, "$file.backup")) {
-    if (-not (Test-Path -LiteralPath $candidate)) { continue }
-    $text = Get-Content -LiteralPath $candidate -Raw
-    foreach ($name in $unsafeSettings) {
-      if ($text -match "`"$name`"") {
-        throw "$candidate sets $name, which would point an elevated install at a directory the user controls"
-      }
+  $lock = [pscustomobject]@{ Paths = @($file, "$file.backup"); Held = @() }
+  foreach ($path in $lock.Paths) {
+    if (-not (Test-Path -LiteralPath $path)) { continue }
+    $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    $lock.Held += $stream
+    $reader = New-Object IO.StreamReader($stream, [Text.Encoding]::UTF8, $true, 4096, $true)
+    Assert-SafeSetting -Path $path -Text $reader.ReadToEnd()
+  }
+  $lock
+}
+
+function Assert-NoNewSetting($Lock) {
+  $held = @($Lock.Held | ForEach-Object { $_.Name })
+  foreach ($path in $Lock.Paths) {
+    if ($held -notcontains $path -and (Test-Path -LiteralPath $path)) {
+      throw "$path appeared during the run"
     }
   }
 }
@@ -58,8 +79,14 @@ function Wait-InstallerIdle([int]$Seconds) {
   $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
   do {
     $mutex = $null
-    if (-not [Threading.Mutex]::TryOpenExisting('Global\_MSIExecute', [ref]$mutex)) { return $true }
-    $mutex.Dispose()
+    try {
+      if (-not [Threading.Mutex]::TryOpenExisting('Global\_MSIExecute', [Security.AccessControl.MutexRights]::Synchronize, [ref]$mutex)) {
+        return $true
+      }
+      $mutex.Dispose()
+    } catch [UnauthorizedAccessException] {
+      $null = $_
+    }
     Start-Sleep -Seconds 5
   } while ([DateTime]::UtcNow -lt $deadline)
   $false
@@ -74,10 +101,14 @@ function Install-WingetPackage($Package, [string]$Winget, [string]$Logs) {
     -RedirectStandardOutput $log -RedirectStandardError "$log.err"
   $null = $process.Handle
   if (-not $process.WaitForExit($Package.Timeout * 1000)) {
-    & (Join-Path -Path ([Environment]::SystemDirectory) -ChildPath 'taskkill.exe') /T /F /PID $process.Id | Out-Null
+    $ErrorActionPreference = 'Continue'
+    & (Join-Path -Path ([Environment]::SystemDirectory) -ChildPath 'taskkill.exe') /T /F /PID $process.Id 2>&1 | Out-Null
     return [pscustomobject]@{ Ok = $false; Detail = "timeout after $($Package.Timeout) s"; TimedOut = $true }
   }
   $code = Format-Code -Code $process.ExitCode
+  if ($code -eq $rebootRequired) {
+    return [pscustomobject]@{ Ok = $true; Detail = 'a reboot finishes the install'; TimedOut = $false }
+  }
   [pscustomobject]@{ Ok = $installed -contains $code; Detail = $code; TimedOut = $false }
 }
 
@@ -95,6 +126,23 @@ try {
   exit 1
 }
 
+$logs = Join-Path -Path $StateDir -ChildPath 'winget'
+$temp = Join-Path -Path $logs -ChildPath 'tmp'
+$principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+$elevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($elevated) {
+  try {
+    [void](New-Item -ItemType Directory -Force -Path $temp)
+    Get-ChildItem -LiteralPath (Join-Path -Path $temp -ChildPath 'WinGet') -Directory -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -ne 'cache' } | Remove-Item -Recurse -Force
+    $env:TMP = $temp
+    $env:TEMP = $temp
+  } catch {
+    Write-Output "FAILED winget: $($_.Exception.Message)"
+    exit 1
+  }
+}
+
 if ($Mode -eq 'verify') {
   foreach ($package in $Packages) {
     Write-Output "@@ winget $($package.Index)"
@@ -103,39 +151,50 @@ if ($Mode -eq 'verify') {
   exit 0
 }
 
-$logs = Join-Path -Path $StateDir -ChildPath 'winget'
-$temp = Join-Path -Path $logs -ChildPath 'tmp'
 try {
-  [void](New-Item -ItemType Directory -Force -Path $temp)
-  $env:TMP = $temp
-  $env:TEMP = $temp
-  Assert-SafeSetting -Winget $winget
+  if (-not $elevated) { throw 'installing needs an administrator session' }
+  $lock = Lock-UserSetting -Winget $winget
 } catch {
   Write-Output "FAILED winget: $($_.Exception.Message)"
   exit 1
 }
 
 $failed = $false
-$busy = $null
-foreach ($package in $Packages) {
-  $watch = [Diagnostics.Stopwatch]::StartNew()
-  if ($busy) {
-    $result = [pscustomobject]@{ Ok = $false; Detail = "skipped, Windows Installer still busy after $busy timed out"; TimedOut = $false }
-  } else {
-    try {
-      $result = Install-WingetPackage -Package $package -Winget $winget -Logs $logs
-    } catch {
-      $result = [pscustomobject]@{ Ok = $false; Detail = $_.Exception.Message -replace '\s+', ' '; TimedOut = $false }
+$stop = $null
+try {
+  foreach ($package in $Packages) {
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    if ($stop) {
+      $result = [pscustomobject]@{ Ok = $false; Detail = "skipped: $stop"; TimedOut = $false }
+    } else {
+      try {
+        Assert-NoNewSetting -Lock $lock
+      } catch {
+        $stop = $_.Exception.Message
+      }
+      if ($stop) {
+        $result = [pscustomobject]@{ Ok = $false; Detail = "skipped: $stop"; TimedOut = $false }
+      } else {
+        try {
+          $result = Install-WingetPackage -Package $package -Winget $winget -Logs $logs
+        } catch {
+          $result = [pscustomobject]@{ Ok = $false; Detail = $_.Exception.Message -replace '\s+', ' '; TimedOut = $false }
+        }
+      }
+    }
+    $seconds = [math]::Round($watch.Elapsed.TotalSeconds)
+    if ($result.Ok) {
+      Write-Status "winget $($package.Id) ok in $seconds s$(if ($result.Detail -notmatch '^0x') { ", $($result.Detail)" })"
+    } else {
+      Write-Status "winget $($package.Id) failed in $seconds s: $($result.Detail), logs $logs\$($package.Id).log and .log.err"
+      Write-Output "FAILED winget $($package.Id): $($result.Detail)"
+      $failed = $true
+    }
+    if ($result.TimedOut -and -not (Wait-InstallerIdle -Seconds $package.Timeout)) {
+      $stop = "Windows Installer still busy after $($package.Id) timed out"
     }
   }
-  $seconds = [math]::Round($watch.Elapsed.TotalSeconds)
-  if ($result.Ok) {
-    Write-Status "winget $($package.Id) ok in $seconds s"
-  } else {
-    Write-Status "winget $($package.Id) failed in $seconds s: $($result.Detail), logs $logs\$($package.Id).log and .log.err"
-    Write-Output "FAILED winget $($package.Id): $($result.Detail)"
-    $failed = $true
-  }
-  if ($result.TimedOut -and -not (Wait-InstallerIdle -Seconds $package.Timeout)) { $busy = $package.Id }
+} finally {
+  $lock.Held | ForEach-Object { $_.Dispose() }
 }
 if ($failed) { exit 1 }
