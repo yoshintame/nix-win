@@ -31,6 +31,7 @@ in
       import ./wrapper {
         inherit pkgs;
         inherit (cfg.winget) bundleFile;
+        installerTypes = import ./installer-types.nix;
         declared = builtins.filter (id: !inBundle id) (builtins.attrNames cfg.winget.packages);
       }
     );

@@ -96,6 +96,7 @@ function Install-WingetPackage($Package, [string]$Winget, [string]$Logs) {
   $arguments = @('install', '--id', $Package.Id, '--exact', '--source', $Package.Source, '--scope', 'machine',
     '--silent', '--no-upgrade', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
   if ($Package.Location) { $arguments += @('--location', $Package.Location) }
+  if ($Package.InstallerType) { $arguments += @('--installer-type', $Package.InstallerType) }
   $log = Join-Path -Path $Logs -ChildPath "$($Package.Id).log"
   $process = Start-Process -FilePath $Winget -ArgumentList (Join-Argument -Arguments $arguments) -NoNewWindow -PassThru `
     -RedirectStandardOutput $log -RedirectStandardError "$log.err"

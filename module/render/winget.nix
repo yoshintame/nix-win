@@ -36,6 +36,7 @@ in
       Id = p.id;
       Source = p.source;
       Location = p.location;
+      InstallerType = p.installerType;
       Timeout = p.timeout;
     }) packages
   );

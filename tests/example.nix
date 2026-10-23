@@ -44,7 +44,10 @@ _: {
     winget = {
       packages = {
         "Blizzard.BattleNet".location = ''C:\Program Files (x86)\Battle.net'';
-        "Notepad++.Notepad++".timeout = 120;
+        "Notepad++.Notepad++" = {
+          timeout = 120;
+          installerType = "nullsoft";
+        };
         "Tailscale.Tailscale" = { };
         XPDP2QW12DFSFK = {
           source = "msstore";
