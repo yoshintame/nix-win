@@ -1,0 +1,14 @@
+[
+  "appx"
+  "burn"
+  "exe"
+  "font"
+  "inno"
+  "msi"
+  "msix"
+  "nullsoft"
+  "portable"
+  "pwa"
+  "wix"
+  "zip"
+]

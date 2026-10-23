@@ -234,6 +234,11 @@ in
                 default = null;
                 description = "Absolute install directory passed as `--location`, for packages that refuse to install without one; only Administrators should be able to write to it, since the elevated installer puts its files there.";
               };
+              installerType = mkOption {
+                type = types.nullOr (types.enum (import ./installer-types.nix));
+                default = null;
+                description = "Installer type passed as `--installer-type`, for packages whose manifest offers several installers and winget picks one that cannot install machine-wide.";
+              };
               timeout = mkOption {
                 type = timeout;
                 default = config.windows.winget.timeout;

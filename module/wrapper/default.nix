@@ -2,6 +2,7 @@
   pkgs,
   bundleFile,
   declared,
+  installerTypes,
 }:
 pkgs.writeShellApplication {
   name = "winget";
@@ -16,6 +17,7 @@ pkgs.writeShellApplication {
   runtimeEnv = {
     NIX_WIN_BUNDLE_FILE = bundleFile;
     NIX_WIN_DECLARED = builtins.concatStringsSep "\n" declared;
+    NIX_WIN_INSTALLER_TYPES = builtins.concatStringsSep " " installerTypes;
   };
   excludeShellChecks = [ "SC2016" ];
   text = builtins.readFile ./winget.sh;

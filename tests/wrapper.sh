@@ -21,6 +21,7 @@ while [ $# -gt 0 ]; do
   --id | -q | --query) id=$2; shift ;;
   --scope) scope=$2; shift ;;
   -s | --source) source=$2; shift ;;
+  --installer-type) shift ;;
   -*) ;;
   *) id=$1 ;;
   esac
@@ -120,6 +121,16 @@ test "$(entry Valve.Steam)" = '{}' || fail "reinstalling a package removed from 
 echo 'Tailscale.Tailscale|machine|winget|Tailscale' >>"$dir/installed"
 run uninstall --id Tailscale.Tailscale
 says 'remove it there'
+
+run install --id AgileBits.1Password --installer-type MSI
+test "$(entry AgileBits.1Password)" = '{"installerType":"msi"}' || fail "the installer type is not recorded: $(entry AgileBits.1Password)"
+
+run install --id Other.Tool --installer-type=bogus
+test "$(entry Other.Tool)" = null || fail "an unknown installer type is recorded"
+says 'installer type bogus'
+
+run install --id Spaced.Type --installer-type 'msi msix'
+test "$(entry Spaced.Type)" = null || fail "an installer type with a space is recorded"
 
 printf '[]' >"$NIX_WIN_WINGET_BUNDLE"
 : >"$dir/calls"

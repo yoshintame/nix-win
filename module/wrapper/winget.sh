@@ -24,6 +24,7 @@ args=("$@")
 ids=()
 source=
 scope=
+installerType=
 manifest=false
 for ((i = 1; i < ${#args[@]}; i++)); do
   arg=${args[i]}
@@ -37,6 +38,11 @@ for ((i = 1; i < ${#args[@]}; i++)); do
   --scope=*)
     scope=${arg#*=}
     scope=${scope,,}
+    ;;
+  --installer-type) installerType=${value,,} ;;
+  --installer-type=*)
+    installerType=${arg#*=}
+    installerType=${installerType,,}
     ;;
   -m | --manifest | --manifest=*) manifest=true ;;
   -*) ;;
@@ -58,6 +64,8 @@ elif [ "$action" = add ] && [ "$scope" != machine ]; then
   reason="the bundle holds machine-wide packages only, so a --scope $scope install is not recorded"
 elif [ -n "$source" ] && [ "$source" != winget ] && [ "$source" != msstore ]; then
   reason="packages from source $source are not recorded"
+elif [ -n "$installerType" ] && ! [[ $installerType =~ ^[a-z]+$ && " $NIX_WIN_INSTALLER_TYPES " == *" $installerType "* ]]; then
+  reason="installer type $installerType is not recorded"
 elif [ -s "$bundle" ] && ! jq -e 'type == "object"' "$bundle" >/dev/null 2>&1; then
   note "$bundle is not a JSON object; fix it before installing or uninstalling through this command"
   exit 1
@@ -109,7 +117,7 @@ if [ "$action" = add ]; then
   fi
   source=${source:-$found}
   case $source in
-  winget) update --arg id "$canonical" ".[$key] = (.[$key] // {})" ;;
+  winget) update --arg id "$canonical" --arg type "$installerType" ".[$key] = ((.[$key] // {}) + (if \$type == \"\" then {} else { installerType: \$type } end))" ;;
   msstore) update --arg id "$canonical" --arg name "$name" ".[$key] = ((.[$key] // {}) + { source: \"msstore\", name: \$name })" ;;
   *)
     note "$canonical comes from source ${source:-unknown}, not recorded"
