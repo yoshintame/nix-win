@@ -110,7 +110,18 @@ function Install-WingetPackage($Package, [string]$Winget, [string]$Logs) {
   if ($code -eq $rebootRequired) {
     return [pscustomobject]@{ Ok = $true; Detail = 'a reboot finishes the install'; TimedOut = $false }
   }
-  [pscustomobject]@{ Ok = $installed -contains $code; Detail = $code; TimedOut = $false }
+  $ok = $installed -contains $code
+  if ($ok) { Repair-PortableAcl -Id $Package.Id }
+  [pscustomobject]@{ Ok = $ok; Detail = $code; TimedOut = $false }
+}
+
+function Repair-PortableAcl([string]$Id) {
+  $root = Join-Path -Path ([Environment]::GetFolderPath('ProgramFiles')) -ChildPath 'WinGet\Packages'
+  $icacls = Join-Path -Path ([Environment]::SystemDirectory) -ChildPath 'icacls.exe'
+  Get-ChildItem -LiteralPath $root -Directory -Filter "${Id}_*" -ErrorAction SilentlyContinue | ForEach-Object {
+    & $icacls $_.FullName /reset /T /C /Q | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "icacls /reset on $($_.FullName) exited with $LASTEXITCODE" }
+  }
 }
 
 function Test-WingetPackage($Package, [string]$Winget) {
