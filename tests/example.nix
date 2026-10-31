@@ -39,7 +39,10 @@ _: {
       validate = file: "findstr /b /c:key ${file} >nul";
       onChange = "echo changed";
     };
-    power.timeouts.standby-timeout-ac = 0;
+    power = {
+      scheme = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c";
+      timeouts.standby-timeout-ac = 0;
+    };
     scheduledTasks."\\Microsoft\\Windows\\Example\\Task".enable = false;
     winget = {
       packages = {
