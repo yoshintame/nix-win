@@ -29,6 +29,8 @@ has "$out/nix-win.ps1" "LocalPort = '8080'"
 has "$out/nix-win.ps1" "InterfaceAlias = 'Any'"
 has "$script" 'findstr /b /c:key "%~dp0files\0001" >nul || (echo FAILED validate C:\ProgramData\NixWin\example.conf& set failed=1& exit /b 0)'
 has "$script" 'echo changed || (echo FAILED on change of C:\ProgramData\NixWin\example.conf& set failed=1& exit /b 0)'
+has "$script" 'powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c >nul'
+test "$(grep -n 'powercfg /setactive' "$script" | cut -d: -f1)" -lt "$(grep -n 'powercfg /change' "$script" | cut -d: -f1)" || fail 'powercfg /setactive does not precede powercfg /change'
 hasE "$script" '^if not exist "%ProgramFiles%\\nix-win\\pending\\[0-9a-f]{16}" exit /b 0'
 hasE "$script" '^setlocal EnableExtensions DisableDelayedExpansion'
 has "$script" 'reg add "HKLM\SOFTWARE\NixWin\Example" /v "Quote" /t REG_SZ /d "say \"hi\" & 100%% done\\" /f'

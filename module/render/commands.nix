@@ -129,7 +129,10 @@ in
   ) entries;
 
   power =
-    mapAttrsToList (
+    optional (
+      cfg.power.scheme != null
+    ) "powercfg /setactive ${cfg.power.scheme} >nul || ${fail "powercfg scheme ${cfg.power.scheme}"}"
+    ++ mapAttrsToList (
       name: value: "powercfg /change ${name} ${toString value} >nul || ${fail "powercfg ${name}"}"
     ) cfg.power.timeouts
     ++ optional (cfg.power.hibernate != null) (

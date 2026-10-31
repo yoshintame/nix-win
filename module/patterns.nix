@@ -10,6 +10,7 @@
   interfaceAlias = "[A-Za-z0-9 ._()-]+";
   grant = "\\*?[A-Za-z0-9-]+:\\(?[A-Z,]+\\)?";
   powerSetting = "[a-z-]+";
+  guid = "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}";
   word = "[A-Za-z]+";
   packageId = "[A-Za-z0-9][A-Za-z0-9._+-]*";
   location = "[A-Za-z]:\\\\[^\r\n\t\"]*[^\\\\\r\n\t\"]";

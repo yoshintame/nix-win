@@ -180,6 +180,11 @@ in
     };
 
     power = {
+      scheme = mkOption {
+        type = types.nullOr (types.strMatching patterns.guid);
+        default = null;
+        description = "GUID of the power scheme made active with `powercfg /setactive` before the timeouts are set, since `powercfg /change` writes into the active scheme; `null` leaves it as is.";
+      };
       timeouts = mkOption {
         type = types.attrsOf types.ints.unsigned;
         default = { };
